@@ -142,16 +142,14 @@ export function heartbeatPatch(body, device) {
     status: "ONLINE",
   };
 }
-export function heartbeatConfirmsActiveSuccess(update, body) {
+export function heartbeatTargetTransition(update, body) {
   const targetMatches =
     body.firmware_version === update?.release?.version &&
     body.build_id === update?.release?.buildId;
-  return Boolean(
-    update &&
-      ["REBOOTING", "HEALTH_CHECK"].includes(update.status) &&
-      targetMatches &&
-      (update.status === "HEALTH_CHECK" || body.last_ota_result === "SUCCESS"),
-  );
+  if (!update || !targetMatches) return null;
+  if (update.status === "REBOOTING") return "HEALTH_CHECK";
+  if (update.status === "HEALTH_CHECK") return "SUCCESS";
+  return null;
 }
 export function validateStatusReport(update, body) {
   const state = body.status;
