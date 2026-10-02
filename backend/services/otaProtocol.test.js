@@ -18,7 +18,11 @@ import {
   validateReleaseMetadata,
 } from "./otaProtocol.js";
 import { createFirmwareStorage } from "./firmwareStorage.js";
-import { requireOtaTransport } from "../routes/otaRoutes.js";
+import {
+  handleOtaRoute,
+  requireFirmwarePublisher,
+  requireOtaTransport,
+} from "../routes/otaRoutes.js";
 
 const device = { deviceId: "hookbox-lab", hardwareModel: "CROWPANEL_7_V3" };
 export function heartbeat(extra = {}) {
@@ -283,5 +287,112 @@ test("production OTA rejects HTTP and cannot enable the development exception", 
       value === undefined
         ? delete process.env[key]
         : (process.env[key] = value);
+  }
+});
+
+test("CI firmware publisher uses a dedicated rotatable token", () => {
+  const env = { CICO_FIRMWARE_PUBLISH_TOKEN: "a".repeat(64) };
+  assert.doesNotThrow(() =>
+    requireFirmwarePublisher(
+      { headers: { authorization: `Bearer ${"a".repeat(64)}` } },
+      env,
+    ),
+  );
+  for (const authorization of [undefined, "Bearer wrong", `Basic ${"a".repeat(64)}`])
+    assert.throws(
+      () => requireFirmwarePublisher({ headers: { authorization } }, env),
+      { statusCode: 401 },
+    );
+  assert.throws(
+    () =>
+      requireFirmwarePublisher(
+        { headers: { authorization: `Bearer ${"a".repeat(64)}` } },
+        {},
+      ),
+    { statusCode: 401 },
+  );
+});
+
+test("CI publisher validates the declared checksum and cannot assign devices", async () => {
+  const original = {
+    token: process.env.CICO_FIRMWARE_PUBLISH_TOKEN,
+    origin: process.env.OTA_PUBLIC_ORIGIN,
+  };
+  process.env.CICO_FIRMWARE_PUBLISH_TOKEN = "p".repeat(64);
+  process.env.OTA_PUBLIC_ORIGIN = "https://cico.example";
+  const sha256 = "a".repeat(64);
+  const makeRequest = () => {
+    const request = upload(image(), {
+      authorization: `Bearer ${"p".repeat(64)}`,
+      "content-type": "application/octet-stream",
+      "x-firmware-sha256": sha256,
+    });
+    request.method = "POST";
+    request.socket = { encrypted: true };
+    return request;
+  };
+  let published = 0;
+  const response = {
+    writeHead(status, headers) {
+      this.status = status;
+      this.headers = headers;
+    },
+    end(body) {
+      this.body = body;
+    },
+  };
+  const common = {
+    response,
+    pathname: "/api/ci/v1/firmware-releases",
+    parsedUrl: new URL(
+      "https://cico.example/api/ci/v1/firmware-releases?version=2.4.1&buildId=20261002.ota-test&hardwareModel=CROWPANEL_7_V3&fileName=firmware.bin",
+    ),
+    service: {
+      async publishRelease(metadata, artifact, userId) {
+        published += 1;
+        assert.equal(userId, null);
+        assert.equal(metadata.version, "2.4.1");
+        return { ...metadata, ...artifact };
+      },
+    },
+    getContext: async () => {
+      throw new Error("CI must not use a browser session");
+    },
+    limiter: { allow: () => true },
+  };
+  try {
+    await handleOtaRoute({
+      ...common,
+      request: makeRequest(),
+      storage: {
+        save: async () => ({ storagePath: "artifact.bin", fileSize: 512, sha256 }),
+        remove: async () => assert.fail("valid artifact must not be removed"),
+      },
+    });
+    assert.equal(response.status, 201);
+    assert.equal(published, 1);
+    let removed = false;
+    await assert.rejects(
+      handleOtaRoute({
+        ...common,
+        request: makeRequest(),
+        storage: {
+          save: async () => ({ storagePath: "bad.bin", fileSize: 512, sha256: "b".repeat(64) }),
+          remove: async () => {
+            removed = true;
+          },
+        },
+      }),
+      { statusCode: 409 },
+    );
+    assert.equal(removed, true);
+    assert.equal(published, 1);
+  } finally {
+    original.token === undefined
+      ? delete process.env.CICO_FIRMWARE_PUBLISH_TOKEN
+      : (process.env.CICO_FIRMWARE_PUBLISH_TOKEN = original.token);
+    original.origin === undefined
+      ? delete process.env.OTA_PUBLIC_ORIGIN
+      : (process.env.OTA_PUBLIC_ORIGIN = original.origin);
   }
 });

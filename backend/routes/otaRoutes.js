@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import { requirePlatformAdmin } from "../services/tenantService.js";
 import { validateReleaseMetadata, otaError } from "../services/otaProtocol.js";
@@ -26,6 +27,20 @@ function requireAdminOrigin(request) {
   const allowed = process.env.APP_ORIGIN;
   if (!allowed || request.headers.origin !== allowed)
     throw otaError("Admin request origin is not allowed.", 403);
+}
+export function requireFirmwarePublisher(request, env = process.env) {
+  const expected = env.CICO_FIRMWARE_PUBLISH_TOKEN;
+  const authorization = request.headers.authorization;
+  const supplied =
+    typeof authorization === "string" && authorization.startsWith("Bearer ")
+      ? authorization.slice(7)
+      : "";
+  if (typeof expected !== "string" || expected.length < 32 || !supplied)
+    throw otaError("Firmware publisher authentication required.", 401);
+  const left = createHash("sha256").update(supplied).digest();
+  const right = createHash("sha256").update(expected).digest();
+  if (!timingSafeEqual(left, right))
+    throw otaError("Firmware publisher authentication required.", 401);
 }
 export async function readOtaJson(request) {
   if (!/^application\/json(?:;|$)/i.test(request.headers["content-type"] || ""))
@@ -71,14 +86,33 @@ export async function handleOtaRoute({
   responseHeaders = {},
 }) {
   const isDevice = pathname.startsWith("/api/device/v1/");
+  const isPublisher = pathname === "/api/ci/v1/firmware-releases";
   const isAdmin = /^\/api\/admin\/(devices|firmware-releases)(\/|$)/.test(
     pathname,
   );
-  if (!isDevice && !isAdmin) return false;
+  if (!isDevice && !isAdmin && !isPublisher) return false;
   requireOtaTransport(request);
   let payload,
     status = 200;
-  if (isDevice) {
+  if (isPublisher) {
+    requireFirmwarePublisher(request);
+    if (request.method !== "POST") throw otaError("OTA endpoint not found.", 404);
+    if (request.headers["content-type"] !== "application/octet-stream")
+      throw otaError("Upload binary bytes with application/octet-stream.", 415);
+    const expectedSha = request.headers["x-firmware-sha256"];
+    if (typeof expectedSha !== "string" || !/^[a-f0-9]{64}$/.test(expectedSha))
+      throw otaError("X-Firmware-Sha256 is required.", 400);
+    const metadata = validateReleaseMetadata(
+      Object.fromEntries(parsedUrl.searchParams),
+    );
+    const artifact = await storage.save(request, metadata.hardwareModel);
+    if (artifact.sha256 !== expectedSha) {
+      await storage.remove(artifact.storagePath);
+      throw otaError("Published checksum does not match uploaded bytes.", 409);
+    }
+    payload = await service.publishRelease(metadata, artifact, null);
+    status = 201;
+  } else if (isDevice) {
     if (!limiter.allow(request.socket?.remoteAddress || "unknown"))
       throw otaError("Too many device requests.", 429);
     const device = await service.authenticate(request);
