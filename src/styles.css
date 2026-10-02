@@ -3002,3 +3002,24 @@ button:disabled {
     width: 32px;
   }
 }
+
+/* Platform Admin infrastructure uses the existing controls and card palette. */
+.ota-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+.ota-tabs .active { background: #e8f1ff; border-color: #b7c9e6; color: #255da8; font-weight: 700; }
+.ota-notice { padding: 12px; border: 1px solid #ccd5df; border-radius: 8px; }
+.ota-form { display: grid; gap: 12px; margin: 20px 0; max-width: 720px; }
+.ota-form label { display: grid; gap: 6px; }
+.ota-form input, .ota-form select, .ota-form textarea { width: 100%; padding: 10px; }
+.ota-table-scroll { overflow-x: auto; }
+.ota-table { min-width: 800px; width: 100%; border-collapse: collapse; font-size: 14px; }
+.ota-table th, .ota-table td { padding: 12px; text-align: left; border-bottom: 1px solid #dce2e8; vertical-align: top; }
+.ota-table td button { margin: 3px; }
+.ota-hash { display: block; max-width: 230px; overflow-wrap: anywhere; }
+.ota-modal-backdrop { position: fixed; inset: 0; background: #0006; display: grid; place-items: center; z-index: 100; padding: 20px; }
+.ota-modal { background: white; border-radius: 12px; padding: 24px; width: min(760px, 100%); max-height: 85vh; overflow-y: auto; }
+.ota-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.ota-details dt { color: #657184; font-size: 12px; }
+.ota-details dd { margin: 4px 0; overflow-wrap: anywhere; }
+
+.ota-page button:not(.primary-button) { background: #ffffff; border: 1px solid #cfd8e3; border-radius: 8px; color: #263244; min-height: 34px; padding: 6px 9px; }
+.ota-page .ota-tabs button.active { background: #e8f1ff; color: #255da8; }

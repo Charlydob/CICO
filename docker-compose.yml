@@ -32,6 +32,10 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BACKEND_HOST: 0.0.0.0
       BACKEND_PORT: 3001
+      OTA_PUBLIC_ORIGIN: ${APP_ORIGIN:-https://hotelapp.charlydob.com}
+      # Backend is private; the existing Caddy proxy supplies X-Forwarded-Proto.
+      OTA_TRUST_PROXY: "true"
+      FIRMWARE_DIR: /data/firmware
       DATA_DIR: /data
       EVIDENCE_DIR: /evidence
       RESERVATION_CACHE_SECONDS: ${RESERVATION_CACHE_SECONDS:-30}

@@ -7,3 +7,9 @@ backend/data
 backend/evidence
 .codex-logs
 *.tsbuildinfo
+
+# Never send firmware/provisioning secrets into an image build context.
+*.bin
+**/*.bin
+*.device-provisioning.json
+**/*.device-provisioning.json

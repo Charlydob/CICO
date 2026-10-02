@@ -1,4 +1,7 @@
 import { createServer } from "node:http";
+import { handleOtaRoute } from "./routes/otaRoutes.js";
+import { createOtaService } from "./services/otaService.js";
+import { createFirmwareStorage } from "./services/firmwareStorage.js";
 import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
@@ -285,6 +288,9 @@ const status = {
 };
 
 const database = createDatabaseClient();
+const firmwareStorage = createFirmwareStorage();
+const otaService = createOtaService(database.prisma, firmwareStorage);
+const deviceLimiter = createRateLimiter({ windowMs: 60_000, max: 240 });
 await ensureBootstrapTenant(database);
 const publicCheckoutLimiter = createRateLimiter({
   windowMs: Number(process.env.PUBLIC_CHECKOUT_RATE_WINDOW_MS || 60_000),
@@ -480,6 +486,8 @@ const server = createServer(async (request, response) => {
   const pathname = parsedUrl.pathname;
 
   try {
+    if (await handleOtaRoute({ request, response, pathname, parsedUrl, service: otaService,
+      storage: firmwareStorage, getContext: getProtectedContext, limiter: deviceLimiter, responseHeaders: corsHeaders(request) })) return;
     if (request.method === "GET" && pathname === "/api/health") {
       let databaseConnected = false;
       try {
@@ -1424,6 +1432,12 @@ const server = createServer(async (request, response) => {
 
     sendJson(response, 404, { error: "Not found" });
   } catch (error) {
+    if (pathname.startsWith("/api/device/") || /^\/api\/admin\/(devices|firmware-releases)(\/|$)/.test(pathname)) {
+      // Prisma exceptions can contain query arguments: never log OTA exceptions or return them to clients.
+      if (response.headersSent) { response.destroy(); return; }
+      sendJson(response, error.statusCode || 500, { error: error.statusCode ? error.message : "OTA service error." });
+      return;
+    }
     logUnexpectedError("HTTP", error);
     sendJson(response, error.statusCode || 500, {
       error: error instanceof Error ? error.message : "Unexpected server error",

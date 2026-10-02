@@ -1371,3 +1371,45 @@ export function evidenceUrlFromPath(localPath?: string): string | undefined {
 
   return `${getBackendUrl()}/api/evidence/${collection}/${encodeURIComponent(filename)}`;
 }
+
+// Platform infrastructure: independent of the active hotel's operational modules.
+export function getDevices() {
+  return requestJson<import("../types/firmware").PhysicalDevice[]>("/api/admin/devices");
+}
+export function getDevice(id: string) {
+  return requestJson<import("../types/firmware").PhysicalDevice>(`/api/admin/devices/${encodeURIComponent(id)}`);
+}
+export function registerDevice(input: { deviceId: string; name: string; hardwareModel: string; tenantId: string | null }) {
+  return requestJson<import("../types/firmware").PhysicalDevice>("/api/admin/devices", { method: "POST", body: JSON.stringify(input) });
+}
+export function getFirmwareReleases() {
+  return requestJson<import("../types/firmware").FirmwareRelease[]>("/api/admin/firmware-releases");
+}
+export function startDeviceUpdate(id: string, releaseId: string) {
+  return requestJson<import("../types/firmware").OtaUpdate>(`/api/admin/devices/${encodeURIComponent(id)}/updates`, { method: "POST", body: JSON.stringify({ releaseId }) });
+}
+export function sendDeviceCommand(id: string, type: "CHECK_UPDATE" | "RESTART") {
+  return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/commands`, { method: "POST", body: JSON.stringify({ type }) });
+}
+export function revokeDeviceCredential(id: string) {
+  return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/revoke-credential`, { method: "POST" });
+}
+export function deleteFirmwareRelease(id: string) {
+  return requestJson(`/api/admin/firmware-releases/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+export async function uploadFirmware(file: File, metadata: { version: string; buildId: string; hardwareModel: string; releaseNotes: string }) {
+  const params = new URLSearchParams({ ...metadata, fileName: file.name });
+  const response = await fetch(`${getBackendUrl()}/api/admin/firmware-releases?${params}`, {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/octet-stream" }, body: file,
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "Firmware upload failed.");
+  return payload as import("../types/firmware").FirmwareRelease;
+}
+export async function downloadFirmwareRelease(id: string) {
+  const response = await fetch(`${getBackendUrl()}/api/admin/firmware-releases/${encodeURIComponent(id)}/download`, { credentials: "include" });
+  if (!response.ok) throw new Error((await response.json()).error || "Download failed.");
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a"); link.href = url; link.download = "firmware.bin"; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
