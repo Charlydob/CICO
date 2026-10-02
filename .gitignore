@@ -13,3 +13,8 @@ backend/data/*.err.log
 backend/data/test-*.json
 backend/evidence/
 .codex-logs/
+
+# Firmware artifacts and per-device provisioning secrets
+*.bin
+backend/data/firmware/
+*.device-provisioning.json

@@ -5,6 +5,7 @@ import { LoginPage } from "./auth/LoginPage";
 import { CheckInDemoPage } from "./components/CheckInDemoPage";
 import { OnboardingGate } from "./components/OnboardingGate";
 import { AppLayout, type AppRoute } from "./layouts/AppLayout";
+import { DevicesFirmwarePage } from "./modules/admin/DevicesFirmwarePage";
 import { AdminPage } from "./modules/admin/AdminPage";
 import { CheckoutPage } from "./modules/checkout/CheckoutPage";
 import { PublicCheckoutPage } from "./modules/checkout/PublicCheckoutPage";
@@ -46,6 +47,8 @@ function routeFromPath(): AppRoute {
     return "settings";
   }
 
+  if (path.startsWith("/admin/devices")) return "devices";
+
   if (path.startsWith("/admin")) {
     return "admin";
   }
@@ -63,6 +66,8 @@ function tenantSlugFromPath() {
 }
 
 function pathFromRoute(route: AppRoute, tenantSlug?: string) {
+  if (route === "devices") return "/admin/devices";
+
   if (route === "admin") {
     return "/admin";
   }
@@ -145,7 +150,7 @@ function PrivateApp() {
   }
 
   const visibleRoute =
-    session.isPlatformAdmin && !activeTenantId
+    session.isPlatformAdmin && !activeTenantId && route !== "devices"
       ? "admin"
       : (
           (route === "users" &&
@@ -165,6 +170,8 @@ function PrivateApp() {
       <ProfilePage />
     ) : visibleRoute === "checkout" ? (
       <CheckoutPage />
+    ) : visibleRoute === "devices" && session.isPlatformAdmin ? (
+      <DevicesFirmwarePage />
     ) : visibleRoute === "admin" && session.isPlatformAdmin ? (
       <AdminPage />
     ) : visibleRoute === "integrations" || visibleRoute === "settings" ? (

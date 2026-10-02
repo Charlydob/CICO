@@ -28,6 +28,7 @@ export type AppRoute =
   | "integrations"
   | "settings"
   | "users"
+  | "devices"
   | "admin"
   | "profile";
 
@@ -48,6 +49,7 @@ const routeIcons = {
   settings: Settings,
   users: Users,
   admin: Shield,
+  devices: Wrench,
   profile: UserCircle,
 };
 
@@ -106,7 +108,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
 
   const mobileNav = (() => {
     if (!activeTenantId) {
-      return session?.isPlatformAdmin ? [{ route: "admin" as AppRoute, label: t("admin") }] : [];
+      return session?.isPlatformAdmin ? [{ route: "admin" as AppRoute, label: t("admin") }, { route: "devices" as AppRoute, label: "Devices / Firmware" }] : [];
     }
 
     if (activeTenantRole === "staff") {
@@ -224,6 +226,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
             <>
               <span>{t("admin")}</span>
               {navButton("admin", "Platform Admin")}
+              {navButton("devices", "Devices / Firmware")}
             </>
           )}
         </nav>
