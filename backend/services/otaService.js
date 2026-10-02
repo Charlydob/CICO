@@ -10,6 +10,7 @@ import {
   uuid,
   compareVersions,
   heartbeatPatch,
+  heartbeatConfirmsActiveSuccess,
   validateStatusReport,
   otaError,
 } from "./otaProtocol.js";
@@ -183,8 +184,36 @@ export function createOtaService(prisma, storage) {
       return withDevice(
         device.id,
         async (tx) => {
-          await tx.device.update({ where: { id: device.id }, data: patch });
-          return { accepted: true, server_time: new Date().toISOString() };
+          const active = await activeUpdate(tx, device.id);
+          const reconciled = heartbeatConfirmsActiveSuccess(active, body);
+          if (reconciled) {
+            const completedAt = new Date();
+            await tx.otaRequest.update({
+              where: { id: active.id },
+              data: { status: "SUCCESS", progress: 100, completedAt },
+            });
+            await tx.otaEvent.create({
+              data: { requestId: active.id, status: "SUCCESS", progress: 100 },
+            });
+          }
+          await tx.device.update({
+            where: { id: device.id },
+            data: {
+              ...patch,
+              ...(reconciled
+                ? {
+                    lastOtaStatus: "SUCCESS",
+                    lastOtaResult: "SUCCESS",
+                    targetFirmwareVersion: null,
+                  }
+                : {}),
+            },
+          });
+          return {
+            accepted: true,
+            server_time: new Date().toISOString(),
+            ...(reconciled ? { ota_reconciled: true } : {}),
+          };
         },
         device,
       );

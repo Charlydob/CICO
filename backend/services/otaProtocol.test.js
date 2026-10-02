@@ -14,6 +14,7 @@ import {
   validToken,
   publicDevice,
   heartbeatPatch,
+  heartbeatConfirmsActiveSuccess,
   validateStatusReport,
   validateReleaseMetadata,
 } from "./otaProtocol.js";
@@ -179,6 +180,13 @@ test("OTA states advance monotonically, require boot health for success and prev
     validateStatusReport({ ...update, status: "SUCCESS" }, success).duplicate,
     true,
   );
+  assert.deepEqual(
+    validateStatusReport(
+      { ...update, status: "SUCCESS" },
+      { status: "HEALTH_CHECK", progress: 95 },
+    ),
+    { duplicate: true, recoveredStalePrecursor: true },
+  );
   assert.throws(() =>
     validateStatusReport({ ...update, status: "SUCCESS" }, rollback),
   );
@@ -284,4 +292,35 @@ test("production OTA rejects HTTP and cannot enable the development exception", 
         ? delete process.env[key]
         : (process.env[key] = value);
   }
+});
+
+test("authenticated heartbeat can reconcile only the matching locally successful active OTA", () => {
+  const active = {
+    status: "REBOOTING",
+    release: { version: "2.4.6", buildId: "build-final" },
+  };
+  const success = {
+    last_ota_result: "SUCCESS",
+    firmware_version: "2.4.6",
+    build_id: "build-final",
+  };
+  assert.equal(heartbeatConfirmsActiveSuccess(active, success), true);
+  assert.equal(
+    heartbeatConfirmsActiveSuccess(active, { ...success, build_id: "wrong" }),
+    false,
+  );
+  assert.equal(
+    heartbeatConfirmsActiveSuccess(
+      { ...active, status: "DOWNLOADING" },
+      success,
+    ),
+    false,
+  );
+  assert.equal(
+    heartbeatConfirmsActiveSuccess(
+      { ...active, status: "SUCCESS" },
+      success,
+    ),
+    false,
+  );
 });
