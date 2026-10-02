@@ -294,7 +294,7 @@ test("production OTA rejects HTTP and cannot enable the development exception", 
   }
 });
 
-test("authenticated heartbeat can reconcile only the matching locally successful active OTA", () => {
+test("authenticated heartbeat reconciles only an exact target after success or health check", () => {
   const active = {
     status: "REBOOTING",
     release: { version: "2.4.6", buildId: "build-final" },
@@ -307,6 +307,27 @@ test("authenticated heartbeat can reconcile only the matching locally successful
   assert.equal(heartbeatConfirmsActiveSuccess(active, success), true);
   assert.equal(
     heartbeatConfirmsActiveSuccess(active, { ...success, build_id: "wrong" }),
+    false,
+  );
+  assert.equal(
+    heartbeatConfirmsActiveSuccess(
+      { ...active, status: "HEALTH_CHECK" },
+      { ...success, last_ota_result: "HEALTH_CHECK" },
+    ),
+    true,
+  );
+  assert.equal(
+    heartbeatConfirmsActiveSuccess(active, {
+      ...success,
+      last_ota_result: "HEALTH_CHECK",
+    }),
+    false,
+  );
+  assert.equal(
+    heartbeatConfirmsActiveSuccess(
+      { ...active, status: "HEALTH_CHECK" },
+      { ...success, firmware_version: "2.4.7", last_ota_result: null },
+    ),
     false,
   );
   assert.equal(
