@@ -14,7 +14,7 @@ import {
   validToken,
   publicDevice,
   heartbeatPatch,
-  heartbeatConfirmsActiveSuccess,
+  heartbeatTargetTransition,
   validateStatusReport,
   validateReleaseMetadata,
 } from "./otaProtocol.js";
@@ -294,54 +294,52 @@ test("production OTA rejects HTTP and cannot enable the development exception", 
   }
 });
 
-test("authenticated heartbeat reconciles only an exact target after success or health check", () => {
+test("authenticated heartbeat advances an exact target one post-reboot state at a time", () => {
   const active = {
     status: "REBOOTING",
     release: { version: "2.4.6", buildId: "build-final" },
   };
-  const success = {
-    last_ota_result: "SUCCESS",
+  const exact = {
     firmware_version: "2.4.6",
     build_id: "build-final",
   };
-  assert.equal(heartbeatConfirmsActiveSuccess(active, success), true);
+  assert.equal(heartbeatTargetTransition(active, exact), "HEALTH_CHECK");
   assert.equal(
-    heartbeatConfirmsActiveSuccess(active, { ...success, build_id: "wrong" }),
-    false,
+    heartbeatTargetTransition(active, { ...exact, build_id: "wrong" }),
+    null,
   );
   assert.equal(
-    heartbeatConfirmsActiveSuccess(
+    heartbeatTargetTransition(
       { ...active, status: "HEALTH_CHECK" },
-      { ...success, last_ota_result: "HEALTH_CHECK" },
+      exact,
     ),
-    true,
+    "SUCCESS",
   );
   assert.equal(
-    heartbeatConfirmsActiveSuccess(active, {
-      ...success,
-      last_ota_result: "HEALTH_CHECK",
-    }),
-    false,
-  );
-  assert.equal(
-    heartbeatConfirmsActiveSuccess(
+    heartbeatTargetTransition(
       { ...active, status: "HEALTH_CHECK" },
-      { ...success, firmware_version: "2.4.7", last_ota_result: null },
+      { ...exact, firmware_version: "2.4.7" },
     ),
-    false,
+    null,
   );
   assert.equal(
-    heartbeatConfirmsActiveSuccess(
-      { ...active, status: "DOWNLOADING" },
-      success,
-    ),
-    false,
+    heartbeatTargetTransition({ ...active, status: "DOWNLOADING" }, exact),
+    null,
   );
   assert.equal(
-    heartbeatConfirmsActiveSuccess(
-      { ...active, status: "SUCCESS" },
-      success,
-    ),
-    false,
+    heartbeatTargetTransition({ ...active, status: "SUCCESS" }, exact),
+    null,
   );
+});
+
+test("pending SUCCESS after heartbeat reconciliation remains idempotent", () => {
+  const success = {
+    status: "SUCCESS",
+    firmware_version: "2.4.1",
+    build_id: update.release.buildId,
+    health_check: Object.fromEntries(HEALTH_FLAGS.map((flag) => [flag, true])),
+  };
+  assert.deepEqual(validateStatusReport({ ...update, status: "SUCCESS" }, success), {
+    duplicate: true,
+  });
 });

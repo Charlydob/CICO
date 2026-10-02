@@ -10,7 +10,7 @@ import {
   uuid,
   compareVersions,
   heartbeatPatch,
-  heartbeatConfirmsActiveSuccess,
+  heartbeatTargetTransition,
   validateStatusReport,
   otaError,
 } from "./otaProtocol.js";
@@ -185,26 +185,32 @@ export function createOtaService(prisma, storage) {
         device.id,
         async (tx) => {
           const active = await activeUpdate(tx, device.id);
-          const reconciled = heartbeatConfirmsActiveSuccess(active, body);
-          if (reconciled) {
-            const completedAt = new Date();
+          const targetTransition = heartbeatTargetTransition(active, body);
+          if (targetTransition) {
+            const completedAt =
+              targetTransition === "SUCCESS" ? new Date() : undefined;
+            const progress = targetTransition === "SUCCESS" ? 100 : 95;
             await tx.otaRequest.update({
               where: { id: active.id },
-              data: { status: "SUCCESS", progress: 100, completedAt },
+              data: { status: targetTransition, progress, completedAt },
             });
             await tx.otaEvent.create({
-              data: { requestId: active.id, status: "SUCCESS", progress: 100 },
+              data: { requestId: active.id, status: targetTransition, progress },
             });
           }
           await tx.device.update({
             where: { id: device.id },
             data: {
               ...patch,
-              ...(reconciled
+              ...(targetTransition
                 ? {
-                    lastOtaStatus: "SUCCESS",
-                    lastOtaResult: "SUCCESS",
-                    targetFirmwareVersion: null,
+                    lastOtaStatus: targetTransition,
+                    ...(targetTransition === "SUCCESS"
+                      ? {
+                          lastOtaResult: "SUCCESS",
+                          targetFirmwareVersion: null,
+                        }
+                      : {}),
                   }
                 : {}),
             },
@@ -212,7 +218,12 @@ export function createOtaService(prisma, storage) {
           return {
             accepted: true,
             server_time: new Date().toISOString(),
-            ...(reconciled ? { ota_reconciled: true } : {}),
+            ...(targetTransition === "HEALTH_CHECK"
+              ? { ota_health_check: true }
+              : {}),
+            ...(targetTransition === "SUCCESS"
+              ? { ota_reconciled: true }
+              : {}),
           };
         },
         device,
