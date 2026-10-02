@@ -35,6 +35,7 @@ services:
       OTA_PUBLIC_ORIGIN: ${APP_ORIGIN:-https://hotelapp.charlydob.com}
       # Backend is private; the existing Caddy proxy supplies X-Forwarded-Proto.
       OTA_TRUST_PROXY: "true"
+      CICO_FIRMWARE_PUBLISH_TOKEN: ${CICO_FIRMWARE_PUBLISH_TOKEN:-}
       FIRMWARE_DIR: /data/firmware
       DATA_DIR: /data
       EVIDENCE_DIR: /evidence
