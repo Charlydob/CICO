@@ -142,14 +142,32 @@ export function heartbeatPatch(body, device) {
     status: "ONLINE",
   };
 }
+export function heartbeatConfirmsActiveSuccess(update, body) {
+  return Boolean(
+    update &&
+      ["REBOOTING", "HEALTH_CHECK"].includes(update.status) &&
+      body.last_ota_result === "SUCCESS" &&
+      body.firmware_version === update.release?.version &&
+      body.build_id === update.release?.buildId,
+  );
+}
 export function validateStatusReport(update, body) {
   const state = body.status;
   if (![...ACTIVE_STATES, ...TERMINAL_STATES].includes(state))
     throw otaError("Unknown OTA status.");
   const progress = int(body.progress ?? 0, "progress", 0, 100);
   if (TERMINAL_STATES.includes(update.status)) {
-    if (state !== update.status)
+    if (state !== update.status) {
+      // A pre-2.4.6 device may have received a successful HEALTH_CHECK response,
+      // sent SUCCESS, and then lost the SUCCESS response before persisting its
+      // local phase. On reboot/retry it sends HEALTH_CHECK again forever. The
+      // server already has the stronger terminal result, so acknowledging this
+      // one stale precursor is safe and lets that client advance to an
+      // idempotent SUCCESS retry.
+      if (update.status === "SUCCESS" && state === "HEALTH_CHECK")
+        return { duplicate: true, recoveredStalePrecursor: true };
       throw otaError("OTA result is already final.", 409);
+    }
     return { duplicate: true };
   }
   if (
