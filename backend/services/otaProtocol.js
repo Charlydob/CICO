@@ -143,12 +143,14 @@ export function heartbeatPatch(body, device) {
   };
 }
 export function heartbeatConfirmsActiveSuccess(update, body) {
+  const targetMatches =
+    body.firmware_version === update?.release?.version &&
+    body.build_id === update?.release?.buildId;
   return Boolean(
     update &&
       ["REBOOTING", "HEALTH_CHECK"].includes(update.status) &&
-      body.last_ota_result === "SUCCESS" &&
-      body.firmware_version === update.release?.version &&
-      body.build_id === update.release?.buildId,
+      targetMatches &&
+      (update.status === "HEALTH_CHECK" || body.last_ota_result === "SUCCESS"),
   );
 }
 export function validateStatusReport(update, body) {
