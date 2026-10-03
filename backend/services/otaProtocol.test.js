@@ -130,7 +130,9 @@ test("CheckoutBox hardware, servo commands and telemetry are strictly validated"
   assert.equal(hardwareSpec("ESP32_DEVKIT_CHECKOUT_V1").otaSlotBytes, 1792 * 1024);
   assert.deepEqual(commandPayload("OPEN_TRAP"), {});
   assert.deepEqual(commandPayloadForHardware("ESP32_DEVKIT_CHECKOUT_V1", "SERVO_RAW_PWM_TEST"), {});
+  assert.deepEqual(commandPayloadForHardware("ESP32_DEVKIT_CHECKOUT_V1", "SERVO_RAW_PIN25_TEST"), {});
   assert.throws(() => commandPayloadForHardware("CROWPANEL_7_V3", "SERVO_RAW_PWM_TEST"));
+  assert.throws(() => commandPayloadForHardware("CROWPANEL_7_V3", "SERVO_RAW_PIN25_TEST"));
   assert.deepEqual(commandPayload("SET_SERVO_CONFIG", { closedAngle: 5, openAngle: 95, holdMs: 1200 }), {
     closedAngle: 5, openAngle: 95, holdMs: 1200, allowedRfids: [],
   });

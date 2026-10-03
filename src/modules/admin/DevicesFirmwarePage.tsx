@@ -551,6 +551,7 @@ export function DevicesFirmwarePage() {
                   <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CLOSE_TRAP"), "Close queued.")}>Close</button>
                   <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CYCLE_TRAP"), "Test cycle queued.")}>Test</button>
                   <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "SERVO_RAW_PWM_TEST"), "Raw PWM test queued.")}>Test PWM crudo</button>
+                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "SERVO_RAW_PIN25_TEST"), "GPIO25 servo test queued.")}>Test servo GPIO25</button>
                   <button className="primary-button" disabled={busy} onClick={() => void run(() => updateDeviceConfiguration(selected.id, {
                     ...calibration,
                     allowedRfids: rfidAllowlist.split(",").map((value) => value.trim()).filter(Boolean),
