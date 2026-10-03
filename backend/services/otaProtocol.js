@@ -3,7 +3,12 @@ import { isIP } from "node:net";
 
 export const HARDWARE = Object.freeze({
   CROWPANEL_7_V3: { otaSlotBytes: 1792 * 1024 },
+  ESP32_DEVKIT_CHECKOUT_V1: { otaSlotBytes: 1792 * 1024 },
 });
+export const COMMANDS = Object.freeze([
+  "OPEN_TRAP", "CLOSE_TRAP", "CYCLE_TRAP", "SET_SERVO_CONFIG",
+  "CHECK_RFID", "RESTART", "CHECK_UPDATE",
+]);
 export const ACTIVE_STATES = [
   "PENDING",
   "DOWNLOADING",
@@ -22,6 +27,9 @@ export const HEALTH_FLAGS = [
   "wifi_stack",
   "ready",
   "app_valid",
+];
+export const CHECKOUTBOX_HEALTH_FLAGS = [
+  "boot", "config", "rfid_uart", "servo", "wifi_stack", "ready", "app_valid",
 ];
 export function otaError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -127,6 +135,16 @@ export function heartbeatPatch(body, device) {
   const result = textField(body.last_ota_result, "OTA result", 64, true);
   if (result && !/^[A-Z0-9_]+$/.test(result))
     throw otaError("OTA result must be a diagnostic code.");
+  const checkout = {};
+  if (device.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1") {
+    const lastRfid = textField(body.last_rfid, "last RFID", 64, true);
+    const lastRfidRaw = textField(body.last_rfid_raw, "last RFID raw frame", 128, true);
+    const trapState = textField(body.trap_state, "trap state", 16, true);
+    if (lastRfid && !/^[A-Fa-f0-9]+$/.test(lastRfid)) throw otaError("Invalid RFID value.");
+    if (lastRfidRaw && !/^[A-Fa-f0-9]+$/.test(lastRfidRaw)) throw otaError("Invalid RFID raw frame.");
+    if (trapState && !["OPEN", "CLOSED"].includes(trapState)) throw otaError("Invalid trap state.");
+    Object.assign(checkout, { lastRfid, lastRfidRaw, trapState });
+  }
   return {
     currentFirmwareVersion: version(body.firmware_version),
     currentBuildId: textField(body.build_id, "build ID"),
@@ -140,7 +158,40 @@ export function heartbeatPatch(body, device) {
     ...(result ? { lastOtaResult: result } : {}),
     lastSeenAt: new Date(),
     status: "ONLINE",
+    ...checkout,
   };
+}
+
+export function servoConfiguration(input, versionValue = null) {
+  const closedAngle = int(input.closedAngle, "closed angle", 0, 180);
+  const openAngle = int(input.openAngle, "open angle", 0, 180);
+  const holdMs = int(input.holdMs, "hold milliseconds", 100, 30000);
+  if (closedAngle === openAngle) throw otaError("Open and closed angles must differ.");
+  const allowedRfids = input.allowedRfids === undefined ? [] : input.allowedRfids;
+  if (!Array.isArray(allowedRfids) || allowedRfids.length > 500 ||
+      allowedRfids.some((value) => typeof value !== "string" || !/^[A-Fa-f0-9]{1,64}$/.test(value)))
+    throw otaError("Invalid RFID allowlist.");
+  return { closedAngle, openAngle, holdMs,
+    allowedRfids: [...new Set(allowedRfids.map((value) => value.toUpperCase()))],
+    ...(versionValue ? { version: versionValue } : {}) };
+}
+
+export function commandPayload(type, payload) {
+  if (!COMMANDS.includes(type)) throw otaError("Unknown command. START_UPDATE requires a release.");
+  if (type === "SET_SERVO_CONFIG") return servoConfiguration(payload || {});
+  if (payload !== undefined && (payload === null || Array.isArray(payload) || typeof payload !== "object"))
+    throw otaError("Command payload must be an object.");
+  return payload || {};
+}
+
+export function deviceEvents(body) {
+  if (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 50)
+    throw otaError("Provide 1 to 50 events.");
+  return body.events.map((event) => ({
+    type: textField(event.type, "event type", 64),
+    detail: textField(event.detail, "event detail", 512, true),
+    uptimeMs: int(event.uptime_ms ?? 0, "event uptime", 0),
+  }));
 }
 export function validateStatusReport(update, body) {
   const state = body.status;
@@ -165,10 +216,12 @@ export function validateStatusReport(update, body) {
   if (resultCode && !/^[A-Z0-9_]+$/.test(resultCode))
     throw otaError("Use a diagnostic code, never a URL or secret.");
   if (state === "SUCCESS") {
+    const requiredHealth = update.release.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1"
+      ? CHECKOUTBOX_HEALTH_FLAGS : HEALTH_FLAGS;
     if (
       body.firmware_version !== update.release.version ||
       body.build_id !== update.release.buildId ||
-      !HEALTH_FLAGS.every((flag) => body.health_check?.[flag] === true)
+      !requiredHealth.every((flag) => body.health_check?.[flag] === true)
     )
       throw otaError(
         "SUCCESS requires matching version/build and a confirmed health check.",

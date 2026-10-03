@@ -48,6 +48,16 @@ export interface PhysicalDevice {
   lastResetReason: string | null;
   lastOtaStatus: string | null;
   lastOtaResult: string | null;
+  lastRfid: string | null;
+  lastRfidRaw: string | null;
+  trapState: string | null;
+  desiredConfig: {
+    version?: string;
+    closedAngle?: number;
+    openAngle?: number;
+    holdMs?: number;
+    allowedRfids?: string[];
+  };
   credentialConfigured: boolean;
   latestUpdate?: OtaUpdate | null;
   updates?: OtaUpdate[];
@@ -57,6 +67,9 @@ export interface PhysicalDevice {
     status: string;
     createdAt: string;
     expiresAt: string;
+    payload?: Record<string, unknown>;
+    result?: { ok: boolean; value: string } | null;
   }>;
+  events?: Array<{ id: string; type: string; detail: string | null; uptimeMs: number; createdAt: string }>;
   tenant?: { id: string; name: string } | null;
 }

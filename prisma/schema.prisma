@@ -416,6 +416,10 @@ model Device {
   lastResetReason        String?  @map("last_reset_reason")
   lastOtaStatus          OtaStatus? @map("last_ota_status")
   lastOtaResult          String?  @map("last_ota_result")
+  desiredConfig          Json     @default("{}") @map("desired_config")
+  lastRfid               String?  @map("last_rfid")
+  lastRfidRaw            String?  @map("last_rfid_raw")
+  trapState              String?  @map("trap_state")
   tokenHash              String?  @map("token_hash")
   credentialVersion      Int      @default(0) @map("credential_version")
   credentialRotatedAt    DateTime? @map("credential_rotated_at")
@@ -425,6 +429,7 @@ model Device {
   tenant                 Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   updates                OtaRequest[]
   commands               DeviceCommand[]
+  events                 DeviceEvent[]
 
   @@index([tenantId])
   @@index([lastSeenAt])
@@ -495,6 +500,8 @@ model DeviceCommand {
   id          String   @id @default(uuid()) @db.Uuid
   deviceId    String   @map("device_id") @db.Uuid
   type        String
+  payload     Json     @default("{}")
+  result      Json?
   status      String   @default("PENDING")
   requestedBy String?  @map("requested_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
@@ -505,4 +512,17 @@ model DeviceCommand {
 
   @@index([deviceId, status])
   @@map("device_commands")
+}
+
+model DeviceEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  deviceId  String   @map("device_id") @db.Uuid
+  type      String
+  detail    String?
+  uptimeMs  Int      @map("uptime_ms")
+  createdAt DateTime @default(now()) @map("created_at")
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@map("device_events")
 }

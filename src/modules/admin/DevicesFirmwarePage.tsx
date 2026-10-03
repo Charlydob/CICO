@@ -11,6 +11,7 @@ import {
   deleteFirmwareRelease,
   uploadFirmware,
   downloadFirmwareRelease,
+  updateDeviceConfiguration,
 } from "../../services/backendApi";
 import type {
   PhysicalDevice,
@@ -73,6 +74,15 @@ export function DevicesFirmwarePage() {
     hardwareModel: "CROWPANEL_7_V3",
     tenantId: "",
   });
+  const [calibration, setCalibration] = useState({ closedAngle: 10, openAngle: 90, holdMs: 1500 });
+  useEffect(() => {
+    if (selected?.hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1") return;
+    setCalibration({
+      closedAngle: selected.desiredConfig?.closedAngle ?? 10,
+      openAngle: selected.desiredConfig?.openAngle ?? 90,
+      holdMs: selected.desiredConfig?.holdMs ?? 1500,
+    });
+  }, [selected?.id]);
   async function reload() {
     const [nextDevices, nextReleases] = await Promise.all([
       getDevices(),
@@ -303,6 +313,7 @@ export function DevicesFirmwarePage() {
                 }
               >
                 <option>CROWPANEL_7_V3</option>
+                <option>ESP32_DEVKIT_CHECKOUT_V1</option>
               </select>
             </label>
             <label>
@@ -367,6 +378,7 @@ export function DevicesFirmwarePage() {
                 }
               >
                 <option>CROWPANEL_7_V3</option>
+                <option>ESP32_DEVKIT_CHECKOUT_V1</option>
               </select>
             </label>
             <label>
@@ -499,6 +511,9 @@ export function DevicesFirmwarePage() {
                 "Config version": selected.configVersion,
                 "Last reset": selected.lastResetReason,
                 "Last OTA result": selected.lastOtaResult,
+                "Last RFID": selected.lastRfid,
+                "RFID raw frame": selected.lastRfidRaw,
+                "Trap": selected.trapState,
                 Credentials: selected.credentialConfigured
                   ? "Provisioned"
                   : "Not provisioned / Revoked",
@@ -509,7 +524,34 @@ export function DevicesFirmwarePage() {
                 </div>
               ))}
             </dl>
+            {selected.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" && (
+              <section className="panel settings-form ota-form" aria-label="Trap calibration">
+                <h3>Trap calibration</h3>
+                <label>Closed
+                  <input type="number" min="0" max="180" value={calibration.closedAngle}
+                    onChange={(e) => setCalibration({ ...calibration, closedAngle: Number(e.target.value) })} />
+                </label>
+                <label>Open
+                  <input type="number" min="0" max="180" value={calibration.openAngle}
+                    onChange={(e) => setCalibration({ ...calibration, openAngle: Number(e.target.value) })} />
+                </label>
+                <label>Hold (ms)
+                  <input type="number" min="100" max="30000" step="100" value={calibration.holdMs}
+                    onChange={(e) => setCalibration({ ...calibration, holdMs: Number(e.target.value) })} />
+                </label>
+                <div className="ota-tabs">
+                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "SET_SERVO_CONFIG", calibration), "Move queued.")}>Move</button>
+                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "OPEN_TRAP"), "Open queued.")}>Open</button>
+                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CLOSE_TRAP"), "Close queued.")}>Close</button>
+                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CYCLE_TRAP"), "Test cycle queued.")}>Test</button>
+                  <button className="primary-button" disabled={busy} onClick={() => void run(() => updateDeviceConfiguration(selected.id, { ...calibration, allowedRfids: selected.desiredConfig?.allowedRfids || [] }), "Configuration saved for sync.")}>Save</button>
+                </div>
+              </section>
+            )}
             <div className="ota-tabs">
+              {selected.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" && (
+                <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CHECK_RFID"), "RFID check queued.")}>Check RFID</button>
+              )}
               <button
                 disabled={busy}
                 onClick={() =>
@@ -588,6 +630,14 @@ export function DevicesFirmwarePage() {
                 · {new Date(command.createdAt).toLocaleString()}
               </p>
             ))}
+            {selected.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" && (
+              <>
+                <h3>Device logs</h3>
+                {selected.events?.map((event) => (
+                  <p key={event.id}>{new Date(event.createdAt).toLocaleString()} · {event.type} · {event.detail || "—"}</p>
+                ))}
+              </>
+            )}
           </section>
         </div>
       )}

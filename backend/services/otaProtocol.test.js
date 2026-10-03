@@ -16,6 +16,10 @@ import {
   heartbeatPatch,
   validateStatusReport,
   validateReleaseMetadata,
+  hardwareSpec,
+  commandPayload,
+  servoConfiguration,
+  deviceEvents,
 } from "./otaProtocol.js";
 import { createFirmwareStorage } from "./firmwareStorage.js";
 import { requireOtaTransport } from "../routes/otaRoutes.js";
@@ -120,6 +124,21 @@ test("release metadata rejects unknown hardware, non-bin and traversal paths", (
   ])
     assert.throws(() => validateReleaseMetadata({ ...metadata, ...patch }));
 });
+test("CheckoutBox hardware, servo commands and telemetry are strictly validated", () => {
+  assert.equal(hardwareSpec("ESP32_DEVKIT_CHECKOUT_V1").otaSlotBytes, 1792 * 1024);
+  assert.deepEqual(commandPayload("OPEN_TRAP"), {});
+  assert.deepEqual(commandPayload("SET_SERVO_CONFIG", { closedAngle: 5, openAngle: 95, holdMs: 1200 }), {
+    closedAngle: 5, openAngle: 95, holdMs: 1200, allowedRfids: [],
+  });
+  assert.throws(() => servoConfiguration({ closedAngle: 90, openAngle: 90, holdMs: 1000 }));
+  assert.throws(() => commandPayload("DESTROY"));
+  assert.equal(deviceEvents({ events: [{ type: "RFID_READ", detail: "AABBCCDD", uptime_ms: 12 }] })[0].uptimeMs, 12);
+  const checkoutDevice = { deviceId: "checkoutbox-lab-01", hardwareModel: "ESP32_DEVKIT_CHECKOUT_V1" };
+  const patch = heartbeatPatch({ ...heartbeat(), device_id: checkoutDevice.deviceId,
+    hardware_model: checkoutDevice.hardwareModel, last_rfid: "AABBCCDD",
+    last_rfid_raw: "020902AABBCCDD0003", trap_state: "CLOSED" }, checkoutDevice);
+  assert.equal(patch.lastRfid, "AABBCCDD");
+});
 test("OTA states advance monotonically, require boot health for success and previous build for rollback", () => {
   assert.equal(
     validateStatusReport(update, { status: "VERIFYING" }).status,
@@ -148,6 +167,11 @@ test("OTA states advance monotonically, require boot health for success and prev
     health_check: Object.fromEntries(HEALTH_FLAGS.map((flag) => [flag, true])),
   };
   assert.equal(validateStatusReport(update, success).progress, 100);
+  const checkoutSuccess = {
+    ...success,
+    health_check: Object.fromEntries(["boot", "config", "rfid_uart", "servo", "wifi_stack", "ready", "app_valid"].map((flag) => [flag, true])),
+  };
+  assert.equal(validateStatusReport({ ...update, release: { ...update.release, hardwareModel: "ESP32_DEVKIT_CHECKOUT_V1" } }, checkoutSuccess).progress, 100);
   assert.throws(() =>
     validateStatusReport(update, { ...success, build_id: "wrong" }),
   );

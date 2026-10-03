@@ -12,6 +12,9 @@ import {
   heartbeatPatch,
   validateStatusReport,
   otaError,
+  commandPayload,
+  servoConfiguration,
+  deviceEvents,
 } from "./otaProtocol.js";
 
 // Persisted requests/events are shared by every backend replica; device operations serialize in PostgreSQL.
@@ -89,6 +92,7 @@ export function createOtaService(prisma, storage) {
             },
           },
           commands: { take: 20, orderBy: { createdAt: "desc" } },
+          events: { take: 100, orderBy: { createdAt: "desc" } },
           tenant: { select: { name: true, id: true } },
         },
       });
@@ -325,9 +329,16 @@ export function createOtaService(prisma, storage) {
               ? {
                   id: command.id,
                   type: command.type,
+                  payload: command.payload,
                   expires_at: command.expiresAt,
                 }
               : null,
+            configuration:
+              current.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" &&
+              current.desiredConfig?.version &&
+              current.desiredConfig.version !== current.configVersion
+                ? current.desiredConfig
+                : null,
             update: update
               ? {
                   request_id: update.id,
@@ -424,10 +435,10 @@ export function createOtaService(prisma, storage) {
         throw otaError("Release not found.", 404);
       return { release, file: await storage.get(release) };
     },
-    async command(id, type, requestedBy) {
+    async command(id, type, payload, requestedBy) {
       uuid(id);
-      if (!["CHECK_UPDATE", "RESTART"].includes(type))
-        throw otaError("Unknown command. START_UPDATE requires a release.");
+      if (requestedBy === undefined) { requestedBy = payload; payload = {}; }
+      const validatedPayload = commandPayload(type, payload);
       return withDevice(id, async (tx, device) => {
         if (!device.tokenHash || device.credentialRevokedAt)
           throw otaError("Device is not provisioned.", 409);
@@ -447,6 +458,7 @@ export function createOtaService(prisma, storage) {
           data: {
             deviceId: id,
             type,
+            payload: validatedPayload,
             requestedBy,
             expiresAt: new Date(Date.now() + 5 * 60_000),
           },
@@ -455,6 +467,10 @@ export function createOtaService(prisma, storage) {
     },
     async acknowledgeCommand(device, body) {
       const id = uuid(body.command_id, "command ID");
+      const result = body.result === undefined ? null : {
+        ok: body.ok === true,
+        value: textField(body.result, "command result", 512, true),
+      };
       return withDevice(
         device.id,
         async (tx) => {
@@ -467,12 +483,30 @@ export function createOtaService(prisma, storage) {
             throw otaError("Command expired.", 409);
           await tx.deviceCommand.update({
             where: { id },
-            data: { status: "ACKNOWLEDGED", completedAt: new Date() },
+            data: { status: "ACKNOWLEDGED", completedAt: new Date(), result },
           });
           return { accepted: true };
         },
         device,
       );
+    },
+    async updateConfiguration(id, input) {
+      uuid(id);
+      const version = String(Date.now());
+      const config = servoConfiguration(input, version);
+      return withDevice(id, async (tx, device) => {
+        if (device.hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1")
+          throw otaError("Servo configuration is only available for CheckoutBox hardware.", 409);
+        await tx.device.update({ where: { id }, data: { desiredConfig: config } });
+        return config;
+      });
+    },
+    async ingestEvents(device, body) {
+      const events = deviceEvents(body);
+      await prisma.deviceEvent.createMany({
+        data: events.map((event) => ({ ...event, deviceId: device.id })),
+      });
+      return { accepted: true, count: events.length };
     },
   };
 }

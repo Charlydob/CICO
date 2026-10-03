@@ -99,6 +99,8 @@ export async function handleOtaRoute({
         device,
         await readOtaJson(request),
       );
+    else if (request.method === "POST" && pathname === "/api/device/v1/events")
+      payload = await service.ingestEvents(device, await readOtaJson(request));
     else {
       const match = pathname.match(
         /^\/api\/device\/v1\/updates\/([^/]+)\/firmware$/,
@@ -147,7 +149,7 @@ export async function handleOtaRoute({
       status = 201;
     } else {
       const device = pathname.match(
-        /^\/api\/admin\/devices\/([^/]+)(?:\/(updates|commands|revoke-credential))?$/,
+        /^\/api\/admin\/devices\/([^/]+)(?:\/(updates|commands|configuration|revoke-credential))?$/,
       );
       const release = pathname.match(
         /^\/api\/admin\/firmware-releases\/([^/]+)(?:\/(download))?$/,
@@ -166,12 +168,18 @@ export async function handleOtaRoute({
         device[2] === "commands" &&
         request.method === "POST"
       ) {
+        const body = await readOtaJson(request);
         payload = await service.command(
           device[1],
-          (await readOtaJson(request)).type,
+          body.type,
+          body.payload,
           userId,
         );
         status = 201;
+      } else if (
+        device && device[2] === "configuration" && request.method === "PUT"
+      ) {
+        payload = await service.updateConfiguration(device[1], await readOtaJson(request));
       } else if (
         device &&
         device[2] === "revoke-credential" &&
