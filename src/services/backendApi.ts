@@ -1388,8 +1388,12 @@ export function getFirmwareReleases() {
 export function startDeviceUpdate(id: string, releaseId: string) {
   return requestJson<import("../types/firmware").OtaUpdate>(`/api/admin/devices/${encodeURIComponent(id)}/updates`, { method: "POST", body: JSON.stringify({ releaseId }) });
 }
-export function sendDeviceCommand(id: string, type: "CHECK_UPDATE" | "RESTART") {
-  return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/commands`, { method: "POST", body: JSON.stringify({ type }) });
+export type DeviceCommandType = "OPEN_TRAP" | "CLOSE_TRAP" | "CYCLE_TRAP" | "SET_SERVO_CONFIG" | "CHECK_RFID" | "RESTART" | "CHECK_UPDATE";
+export function sendDeviceCommand(id: string, type: DeviceCommandType, payload: Record<string, unknown> = {}) {
+  return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/commands`, { method: "POST", body: JSON.stringify({ type, payload }) });
+}
+export function updateDeviceConfiguration(id: string, config: { closedAngle: number; openAngle: number; holdMs: number; allowedRfids?: string[] }) {
+  return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/configuration`, { method: "PUT", body: JSON.stringify(config) });
 }
 export function revokeDeviceCredential(id: string) {
   return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/revoke-credential`, { method: "POST" });
