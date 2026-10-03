@@ -103,7 +103,7 @@ function corsHeaders(request) {
   return {
     "Access-Control-Allow-Origin": allowedOrigin || requestOrigin || "*",
     "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers":
       "Content-Type, Stripe-Signature, X-Tenant-Id, X-Tenant-Slug, X-HotelApp-Secret",
   };
