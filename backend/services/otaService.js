@@ -13,7 +13,7 @@ import {
   heartbeatTargetTransition,
   validateStatusReport,
   otaError,
-  commandPayload,
+  commandPayloadForHardware,
   servoConfiguration,
   deviceEvents,
 } from "./otaProtocol.js";
@@ -478,8 +478,8 @@ export function createOtaService(prisma, storage) {
     async command(id, type, payload, requestedBy) {
       uuid(id);
       if (requestedBy === undefined) { requestedBy = payload; payload = {}; }
-      const validatedPayload = commandPayload(type, payload);
       return withDevice(id, async (tx, device) => {
+        const validatedPayload = commandPayloadForHardware(device.hardwareModel, type, payload);
         if (!device.tokenHash || device.credentialRevokedAt)
           throw otaError("Device is not provisioned.", 409);
         if (await activeUpdate(tx, id))

@@ -7,7 +7,7 @@ export const HARDWARE = Object.freeze({
 });
 export const COMMANDS = Object.freeze([
   "OPEN_TRAP", "CLOSE_TRAP", "CYCLE_TRAP", "SET_SERVO_CONFIG",
-  "CHECK_RFID", "RESTART", "CHECK_UPDATE",
+  "SERVO_RAW_PWM_TEST", "CHECK_RFID", "RESTART", "CHECK_UPDATE",
 ]);
 export const ACTIVE_STATES = [
   "PENDING",
@@ -212,6 +212,16 @@ export function commandPayload(type, payload) {
     throw otaError("Command payload must be an object.");
 
   return payload || {};
+}
+
+export function commandPayloadForHardware(hardwareModel, type, payload) {
+  hardwareSpec(hardwareModel);
+  if (
+    type === "SERVO_RAW_PWM_TEST" &&
+    hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1"
+  )
+    throw otaError("Raw servo PWM test is only available for CheckoutBox hardware.", 409);
+  return commandPayload(type, payload);
 }
 
 export function deviceEvents(body) {
