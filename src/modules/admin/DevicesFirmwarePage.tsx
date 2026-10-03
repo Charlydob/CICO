@@ -75,6 +75,7 @@ export function DevicesFirmwarePage() {
     tenantId: "",
   });
   const [calibration, setCalibration] = useState({ closedAngle: 10, openAngle: 90, holdMs: 1500 });
+  const [rfidAllowlist, setRfidAllowlist] = useState("");
   useEffect(() => {
     if (selected?.hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1") return;
     setCalibration({
@@ -82,6 +83,7 @@ export function DevicesFirmwarePage() {
       openAngle: selected.desiredConfig?.openAngle ?? 90,
       holdMs: selected.desiredConfig?.holdMs ?? 1500,
     });
+    setRfidAllowlist((selected.desiredConfig?.allowedRfids || []).join(", "));
   }, [selected?.id]);
   async function reload() {
     const [nextDevices, nextReleases] = await Promise.all([
@@ -539,12 +541,19 @@ export function DevicesFirmwarePage() {
                   <input type="number" min="100" max="30000" step="100" value={calibration.holdMs}
                     onChange={(e) => setCalibration({ ...calibration, holdMs: Number(e.target.value) })} />
                 </label>
+                <label>Allowed RFID UIDs
+                  <input value={rfidAllowlist} placeholder="AABBCCDD, 11223344"
+                    onChange={(e) => setRfidAllowlist(e.target.value)} />
+                </label>
                 <div className="ota-tabs">
                   <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "SET_SERVO_CONFIG", calibration), "Move queued.")}>Move</button>
                   <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "OPEN_TRAP"), "Open queued.")}>Open</button>
                   <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CLOSE_TRAP"), "Close queued.")}>Close</button>
                   <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CYCLE_TRAP"), "Test cycle queued.")}>Test</button>
-                  <button className="primary-button" disabled={busy} onClick={() => void run(() => updateDeviceConfiguration(selected.id, { ...calibration, allowedRfids: selected.desiredConfig?.allowedRfids || [] }), "Configuration saved for sync.")}>Save</button>
+                  <button className="primary-button" disabled={busy} onClick={() => void run(() => updateDeviceConfiguration(selected.id, {
+                    ...calibration,
+                    allowedRfids: rfidAllowlist.split(",").map((value) => value.trim()).filter(Boolean),
+                  }), "Configuration saved for sync.")}>Save</button>
                 </div>
               </section>
             )}
