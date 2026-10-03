@@ -14,6 +14,7 @@ import {
   validToken,
   publicDevice,
   heartbeatPatch,
+  heartbeatTargetTransition,
   validateStatusReport,
   validateReleaseMetadata,
   hardwareSpec,
@@ -203,6 +204,13 @@ test("OTA states advance monotonically, require boot health for success and prev
     validateStatusReport({ ...update, status: "SUCCESS" }, success).duplicate,
     true,
   );
+  assert.deepEqual(
+    validateStatusReport(
+      { ...update, status: "SUCCESS" },
+      { status: "HEALTH_CHECK", progress: 95 },
+    ),
+    { duplicate: true, recoveredStalePrecursor: true },
+  );
   assert.throws(() =>
     validateStatusReport({ ...update, status: "SUCCESS" }, rollback),
   );
@@ -308,4 +316,54 @@ test("production OTA rejects HTTP and cannot enable the development exception", 
         ? delete process.env[key]
         : (process.env[key] = value);
   }
+});
+
+test("authenticated heartbeat advances an exact target one post-reboot state at a time", () => {
+  const active = {
+    status: "REBOOTING",
+    release: { version: "2.4.6", buildId: "build-final" },
+  };
+  const exact = {
+    firmware_version: "2.4.6",
+    build_id: "build-final",
+  };
+  assert.equal(heartbeatTargetTransition(active, exact), "HEALTH_CHECK");
+  assert.equal(
+    heartbeatTargetTransition(active, { ...exact, build_id: "wrong" }),
+    null,
+  );
+  assert.equal(
+    heartbeatTargetTransition(
+      { ...active, status: "HEALTH_CHECK" },
+      exact,
+    ),
+    "SUCCESS",
+  );
+  assert.equal(
+    heartbeatTargetTransition(
+      { ...active, status: "HEALTH_CHECK" },
+      { ...exact, firmware_version: "2.4.7" },
+    ),
+    null,
+  );
+  assert.equal(
+    heartbeatTargetTransition({ ...active, status: "DOWNLOADING" }, exact),
+    null,
+  );
+  assert.equal(
+    heartbeatTargetTransition({ ...active, status: "SUCCESS" }, exact),
+    null,
+  );
+});
+
+test("pending SUCCESS after heartbeat reconciliation remains idempotent", () => {
+  const success = {
+    status: "SUCCESS",
+    firmware_version: "2.4.1",
+    build_id: update.release.buildId,
+    health_check: Object.fromEntries(HEALTH_FLAGS.map((flag) => [flag, true])),
+  };
+  assert.deepEqual(validateStatusReport({ ...update, status: "SUCCESS" }, success), {
+    duplicate: true,
+  });
 });

@@ -10,6 +10,7 @@ import {
   uuid,
   compareVersions,
   heartbeatPatch,
+  heartbeatTargetTransition,
   validateStatusReport,
   otaError,
   commandPayload,
@@ -187,8 +188,47 @@ export function createOtaService(prisma, storage) {
       return withDevice(
         device.id,
         async (tx) => {
-          await tx.device.update({ where: { id: device.id }, data: patch });
-          return { accepted: true, server_time: new Date().toISOString() };
+          const active = await activeUpdate(tx, device.id);
+          const targetTransition = heartbeatTargetTransition(active, body);
+          if (targetTransition) {
+            const completedAt =
+              targetTransition === "SUCCESS" ? new Date() : undefined;
+            const progress = targetTransition === "SUCCESS" ? 100 : 95;
+            await tx.otaRequest.update({
+              where: { id: active.id },
+              data: { status: targetTransition, progress, completedAt },
+            });
+            await tx.otaEvent.create({
+              data: { requestId: active.id, status: targetTransition, progress },
+            });
+          }
+          await tx.device.update({
+            where: { id: device.id },
+            data: {
+              ...patch,
+              ...(targetTransition
+                ? {
+                    lastOtaStatus: targetTransition,
+                    ...(targetTransition === "SUCCESS"
+                      ? {
+                          lastOtaResult: "SUCCESS",
+                          targetFirmwareVersion: null,
+                        }
+                      : {}),
+                  }
+                : {}),
+            },
+          });
+          return {
+            accepted: true,
+            server_time: new Date().toISOString(),
+            ...(targetTransition === "HEALTH_CHECK"
+              ? { ota_health_check: true }
+              : {}),
+            ...(targetTransition === "SUCCESS"
+              ? { ota_reconciled: true }
+              : {}),
+          };
         },
         device,
       );

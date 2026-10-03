@@ -161,46 +161,103 @@ export function heartbeatPatch(body, device) {
     ...checkout,
   };
 }
-
 export function servoConfiguration(input, versionValue = null) {
   const closedAngle = int(input.closedAngle, "closed angle", 0, 180);
   const openAngle = int(input.openAngle, "open angle", 0, 180);
   const holdMs = int(input.holdMs, "hold milliseconds", 100, 30000);
-  if (closedAngle === openAngle) throw otaError("Open and closed angles must differ.");
-  const allowedRfids = input.allowedRfids === undefined ? [] : input.allowedRfids;
-  if (!Array.isArray(allowedRfids) || allowedRfids.length > 500 ||
-      allowedRfids.some((value) => typeof value !== "string" || !/^[A-Fa-f0-9]{1,64}$/.test(value)))
+
+  if (closedAngle === openAngle)
+    throw otaError("Open and closed angles must differ.");
+
+  const allowedRfids =
+    input.allowedRfids === undefined ? [] : input.allowedRfids;
+
+  if (
+    !Array.isArray(allowedRfids) ||
+    allowedRfids.length > 500 ||
+    allowedRfids.some(
+      (value) =>
+        typeof value !== "string" ||
+        !/^[A-Fa-f0-9]{1,64}$/.test(value),
+    )
+  )
     throw otaError("Invalid RFID allowlist.");
-  return { closedAngle, openAngle, holdMs,
-    allowedRfids: [...new Set(allowedRfids.map((value) => value.toUpperCase()))],
-    ...(versionValue ? { version: versionValue } : {}) };
+
+  return {
+    closedAngle,
+    openAngle,
+    holdMs,
+    allowedRfids: [
+      ...new Set(allowedRfids.map((value) => value.toUpperCase())),
+    ],
+    ...(versionValue ? { version: versionValue } : {}),
+  };
 }
 
 export function commandPayload(type, payload) {
-  if (!COMMANDS.includes(type)) throw otaError("Unknown command. START_UPDATE requires a release.");
-  if (type === "SET_SERVO_CONFIG") return servoConfiguration(payload || {});
-  if (payload !== undefined && (payload === null || Array.isArray(payload) || typeof payload !== "object"))
+  if (!COMMANDS.includes(type))
+    throw otaError(
+      "Unknown command. START_UPDATE requires a release.",
+    );
+
+  if (type === "SET_SERVO_CONFIG")
+    return servoConfiguration(payload || {});
+
+  if (
+    payload !== undefined &&
+    (payload === null ||
+      Array.isArray(payload) ||
+      typeof payload !== "object")
+  )
     throw otaError("Command payload must be an object.");
+
   return payload || {};
 }
 
 export function deviceEvents(body) {
-  if (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > 50)
+  if (
+    !Array.isArray(body.events) ||
+    body.events.length < 1 ||
+    body.events.length > 50
+  )
     throw otaError("Provide 1 to 50 events.");
+
   return body.events.map((event) => ({
     type: textField(event.type, "event type", 64),
     detail: textField(event.detail, "event detail", 512, true),
     uptimeMs: int(event.uptime_ms ?? 0, "event uptime", 0),
   }));
 }
+
+export function heartbeatTargetTransition(update, body) {
+  const targetMatches =
+    body.firmware_version === update?.release?.version &&
+    body.build_id === update?.release?.buildId;
+
+  if (!update || !targetMatches) return null;
+  if (update.status === "REBOOTING") return "HEALTH_CHECK";
+  if (update.status === "HEALTH_CHECK") return "SUCCESS";
+
+  return null;
+}
+
 export function validateStatusReport(update, body) {
   const state = body.status;
   if (![...ACTIVE_STATES, ...TERMINAL_STATES].includes(state))
     throw otaError("Unknown OTA status.");
   const progress = int(body.progress ?? 0, "progress", 0, 100);
   if (TERMINAL_STATES.includes(update.status)) {
-    if (state !== update.status)
+    if (state !== update.status) {
+      // A pre-2.4.6 device may have received a successful HEALTH_CHECK response,
+      // sent SUCCESS, and then lost the SUCCESS response before persisting its
+      // local phase. On reboot/retry it sends HEALTH_CHECK again forever. The
+      // server already has the stronger terminal result, so acknowledging this
+      // one stale precursor is safe and lets that client advance to an
+      // idempotent SUCCESS retry.
+      if (update.status === "SUCCESS" && state === "HEALTH_CHECK")
+        return { duplicate: true, recoveredStalePrecursor: true };
       throw otaError("OTA result is already final.", 409);
+    }
     return { duplicate: true };
   }
   if (
