@@ -455,6 +455,56 @@ test(
         },
       );
       await t.test(
+        "platform admin can cancel an active OTA with audit history and late device reports stay idempotent",
+        async () => {
+          assert.equal(
+            (
+              await api(
+                `/api/admin/devices/${device.id}/updates/${pending.id}/cancel`,
+                { method: "POST", cookie: tenantCookie, body: {} },
+              )
+            ).status,
+            403,
+          );
+          const cancelled = await api(
+            `/api/admin/devices/${device.id}/updates/${pending.id}/cancel`,
+            { method: "POST", cookie: adminCookie, body: {} },
+          );
+          assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
+          assert.equal(cancelled.body.status, "CANCELLED");
+          assert.equal(cancelled.body.resultCode, "ADMIN_CANCELLED");
+          assert.equal(cancelled.body.cancelledBy, adminId);
+          assert.ok(cancelled.body.cancelledAt);
+          const duplicate = await api(
+            `/api/admin/devices/${device.id}/updates/${pending.id}/cancel`,
+            { method: "POST", cookie: adminCookie, body: {} },
+          );
+          assert.equal(duplicate.status, 200);
+          const poll = await api("/api/device/v1/update", {
+            headers: deviceHeaders(),
+          });
+          assert.equal(poll.body.update, null);
+          const lateReport = await api("/api/device/v1/update/status", {
+            method: "POST",
+            headers: deviceHeaders(),
+            body: {
+              request_id: pending.id,
+              status: "HEALTH_CHECK",
+              progress: 95,
+            },
+          });
+          assert.equal(lateReport.status, 200);
+          assert.equal(lateReport.body.cancelled, true);
+          const details = await service.getDevice(device.id);
+          assert.equal(details.targetFirmwareVersion, null);
+          assert.equal(details.lastOtaStatus, "CANCELLED");
+          assert.equal(details.updates[0].events[0].status, "CANCELLED");
+          assert.equal(details.updates[0].events[0].resultCode, "ADMIN_CANCELLED");
+
+          pending = await service.assignUpdate(device.id, release.id, adminId);
+        },
+      );
+      await t.test(
         "progress and health gate persist; a device-reported SHA failure leaves the current version unchanged",
         async () => {
           const report = (body) =>

@@ -6,6 +6,7 @@ import {
   registerDevice,
   getFirmwareReleases,
   startDeviceUpdate,
+  cancelDeviceUpdate,
   sendDeviceCommand,
   revokeDeviceCredential,
   deleteFirmwareRelease,
@@ -618,6 +619,25 @@ export function DevicesFirmwarePage() {
                     Awaiting device confirmation; check connectivity and boot
                     diagnostics.
                   </p>
+                )}
+                {ACTIVE.includes(update.status) && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `¿Cancelar la actualización ${update.release.version} / ${update.release.buildId}? CICO dejará de distribuirla. Si el dispositivo ya estaba instalando o reiniciando, la cancelación no puede deshacer los bytes ya escritos.`,
+                        )
+                      )
+                        void run(
+                          () => cancelDeviceUpdate(selected.id, update.id),
+                          "Actualización cancelada. El historial se ha conservado.",
+                        );
+                    }}
+                  >
+                    Cancelar actualización
+                  </button>
                 )}
                 <details>
                   <summary>Events</summary>

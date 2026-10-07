@@ -347,6 +347,51 @@ export function createOtaService(prisma, storage) {
         { timeout: 15_000 },
       );
     },
+    async cancelUpdate(deviceId, requestId, cancelledBy) {
+      uuid(deviceId, "device ID");
+      uuid(requestId, "request ID");
+      uuid(cancelledBy, "cancelling user ID");
+      return withDevice(deviceId, async (tx, device) => {
+        const update = await tx.otaRequest.findUnique({
+          where: { id: requestId },
+          include: { release: true },
+        });
+        if (!update || update.deviceId !== device.id)
+          throw otaError("Update not found.", 404);
+        if (update.status === "CANCELLED") return publicUpdate(update);
+        if (!ACTIVE_STATES.includes(update.status))
+          throw otaError("Only an active update can be cancelled.", 409);
+        const cancelledAt = new Date();
+        const cancelled = await tx.otaRequest.update({
+          where: { id: requestId },
+          data: {
+            status: "CANCELLED",
+            resultCode: "ADMIN_CANCELLED",
+            completedAt: cancelledAt,
+            cancelledAt,
+            cancelledBy,
+          },
+          include: { release: true },
+        });
+        await tx.otaEvent.create({
+          data: {
+            requestId,
+            status: "CANCELLED",
+            progress: update.progress,
+            resultCode: "ADMIN_CANCELLED",
+          },
+        });
+        await tx.device.update({
+          where: { id: device.id },
+          data: {
+            targetFirmwareVersion: null,
+            lastOtaStatus: "CANCELLED",
+            lastOtaResult: "ADMIN_CANCELLED",
+          },
+        });
+        return publicUpdate(cancelled);
+      });
+    },
     async poll(device) {
       return withDevice(
         device.id,
@@ -408,6 +453,8 @@ export function createOtaService(prisma, storage) {
           });
           if (!update || update.deviceId !== current.id)
             throw otaError("Update not found.", 404);
+          if (update.status === "CANCELLED")
+            return { accepted: true, duplicate: true, cancelled: true };
           const patch = validateStatusReport(update, body);
           if (patch.duplicate) return { accepted: true, duplicate: true };
           await tx.otaRequest.update({ where: { id }, data: patch });

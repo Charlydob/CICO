@@ -151,10 +151,19 @@ export async function handleOtaRoute({
       const device = pathname.match(
         /^\/api\/admin\/devices\/([^/]+)(?:\/(updates|commands|configuration|revoke-credential))?$/,
       );
+      const cancelUpdate = pathname.match(
+        /^\/api\/admin\/devices\/([^/]+)\/updates\/([^/]+)\/cancel$/,
+      );
       const release = pathname.match(
         /^\/api\/admin\/firmware-releases\/([^/]+)(?:\/(download))?$/,
       );
-      if (device && !device[2] && request.method === "GET")
+      if (cancelUpdate && request.method === "POST")
+        payload = await service.cancelUpdate(
+          cancelUpdate[1],
+          cancelUpdate[2],
+          userId,
+        );
+      else if (device && !device[2] && request.method === "GET")
         payload = await service.getDevice(device[1]);
       else if (device && device[2] === "updates" && request.method === "POST") {
         payload = await service.assignUpdate(
