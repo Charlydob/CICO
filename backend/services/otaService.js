@@ -187,9 +187,14 @@ export function createOtaService(prisma, storage) {
       const patch = heartbeatPatch(body, device);
       return withDevice(
         device.id,
-        async (tx) => {
+        async (tx, current) => {
           const active = await activeUpdate(tx, device.id);
           const targetTransition = heartbeatTargetTransition(active, body);
+          // A device can retain an OTA phase in NVS after an administrator
+          // cancels its request. Keep the audited cancellation result as the
+          // server source of truth while the device clears that stale phase.
+          if (!active && current.lastOtaStatus === "CANCELLED")
+            delete patch.lastOtaResult;
           if (targetTransition) {
             const completedAt =
               targetTransition === "SUCCESS" ? new Date() : undefined;

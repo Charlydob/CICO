@@ -495,9 +495,16 @@ test(
           });
           assert.equal(lateReport.status, 200);
           assert.equal(lateReport.body.cancelled, true);
+          const staleHeartbeat = await api("/api/device/v1/heartbeat", {
+            method: "POST",
+            headers: deviceHeaders(),
+            body: { ...heartbeat(), last_ota_result: "HEALTH_CHECK" },
+          });
+          assert.equal(staleHeartbeat.status, 200);
           const details = await service.getDevice(device.id);
           assert.equal(details.targetFirmwareVersion, null);
           assert.equal(details.lastOtaStatus, "CANCELLED");
+          assert.equal(details.lastOtaResult, "ADMIN_CANCELLED");
           assert.equal(details.updates[0].events[0].status, "CANCELLED");
           assert.equal(details.updates[0].events[0].resultCode, "ADMIN_CANCELLED");
 
