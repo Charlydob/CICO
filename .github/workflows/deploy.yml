@@ -73,6 +73,41 @@ jobs:
               exit 1
             fi
 
+            BACKEND_CONTAINER="$(docker compose -f docker-compose.hetzner.yml ps -q backend)"
+            if [ -z "$BACKEND_CONTAINER" ]; then
+              echo "Cannot back up production: the current backend container is not running"
+              exit 1
+            fi
+
+            BACKUP_DIR="$PWD/backups/$(date -u +%Y%m%dT%H%M%SZ)-$DEPLOY_SHA"
+            install -m 700 -d "$BACKUP_DIR"
+            DATABASE_URL="$(docker exec "$BACKEND_CONTAINER" printenv DATABASE_URL)"
+            if [ -z "$DATABASE_URL" ]; then
+              echo "Cannot back up production: DATABASE_URL is unavailable"
+              exit 1
+            fi
+            docker run --rm --network charly-stack_default \
+              -e DATABASE_URL="$DATABASE_URL" \
+              -v "$BACKUP_DIR:/backup" \
+              postgres:16-alpine \
+              pg_dump --format=custom --no-owner --no-acl \
+                --file=/backup/hotelapp.dump "$DATABASE_URL"
+            test -s "$BACKUP_DIR/hotelapp.dump"
+
+            DATA_VOLUME="$(docker inspect "$BACKEND_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')"
+            EVIDENCE_VOLUME="$(docker inspect "$BACKEND_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/evidence"}}{{.Name}}{{end}}{{end}}')"
+            test -n "$DATA_VOLUME"
+            test -n "$EVIDENCE_VOLUME"
+            docker run --rm -v "$DATA_VOLUME:/volume:ro" -v "$BACKUP_DIR:/backup" \
+              alpine tar czf /backup/app-data.tgz -C /volume .
+            docker run --rm -v "$EVIDENCE_VOLUME:/volume:ro" -v "$BACKUP_DIR:/backup" \
+              alpine tar czf /backup/app-evidence.tgz -C /volume .
+            test -s "$BACKUP_DIR/app-data.tgz"
+            test -s "$BACKUP_DIR/app-evidence.tgz"
+            printf '%s\n' "$DEPLOY_SHA" > "$BACKUP_DIR/before-deploy-sha"
+            chmod 600 "$BACKUP_DIR"/*
+            echo "Production backup completed in $BACKUP_DIR"
+
             export GIT_SHA="$DEPLOY_SHA"
             docker compose -f docker-compose.hetzner.yml build --pull backend frontend
             docker compose -f docker-compose.hetzner.yml up -d --force-recreate --remove-orphans

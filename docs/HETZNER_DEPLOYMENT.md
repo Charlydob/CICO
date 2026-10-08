@@ -241,6 +241,8 @@ docker compose -f docker-compose.hetzner.yml ps
 
 Database migrations run on backend startup with `prisma migrate deploy`.
 
+The GitHub production workflow creates a timestamped PostgreSQL custom-format dump and read-only archives of the existing `/data` and `/evidence` volumes before rebuilding or starting containers. Deployment stops before migrations if any backup is missing or empty.
+
 ## Backup
 
 For standalone installations, back up the PostgreSQL and HotelApp volumes:
