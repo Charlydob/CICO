@@ -188,10 +188,10 @@ export function servoConfiguration(input, versionValue = null) {
     allowedRfids.some(
       (value) =>
         typeof value !== "string" ||
-        !/^[A-Fa-f0-9]{8}$/.test(value),
+        !/^(?:[A-Fa-f0-9]{8}|[A-Fa-f0-9]{10})$/.test(value),
     )
   )
-    throw otaError("RFID allowlist entries must be exactly 8 hexadecimal characters; maximum 128 entries.");
+    throw otaError("RFID allowlist entries must be exactly 8 or 10 hexadecimal characters; maximum 128 entries.");
 
   return {
     closedAngle,
