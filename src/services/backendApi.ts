@@ -1391,7 +1391,7 @@ export function startDeviceUpdate(id: string, releaseId: string) {
 export function cancelDeviceUpdate(deviceId: string, requestId: string) {
   return requestJson<import("../types/firmware").OtaUpdate>(`/api/admin/devices/${encodeURIComponent(deviceId)}/updates/${encodeURIComponent(requestId)}/cancel`, { method: "POST", body: JSON.stringify({}) });
 }
-export type DeviceCommandType = "OPEN_TRAP" | "CLOSE_TRAP" | "CYCLE_TRAP" | "SET_SERVO_CONFIG" | "SERVO_RAW_PWM_TEST" | "SERVO_RAW_PIN25_TEST" | "CHECK_RFID" | "RESTART" | "CHECK_UPDATE";
+export type DeviceCommandType = "OPEN_TRAP" | "CLOSE_TRAP" | "CYCLE_TRAP" | "SET_SERVO_CONFIG" | "SERVO_DIAG_START" | "SERVO_DIAG_STOP" | "SERVO_RAW_PWM_TEST" | "SERVO_RAW_PIN25_TEST" | "CHECK_RFID" | "RESTART" | "CHECK_UPDATE";
 export function sendDeviceCommand(id: string, type: DeviceCommandType, payload: Record<string, unknown> = {}) {
   return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/commands`, { method: "POST", body: JSON.stringify({ type, payload }) });
 }

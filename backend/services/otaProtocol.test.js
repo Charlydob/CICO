@@ -131,19 +131,31 @@ test("CheckoutBox hardware, servo commands and telemetry are strictly validated"
   assert.deepEqual(commandPayload("OPEN_TRAP"), {});
   assert.deepEqual(commandPayloadForHardware("ESP32_DEVKIT_CHECKOUT_V1", "SERVO_RAW_PWM_TEST"), {});
   assert.deepEqual(commandPayloadForHardware("ESP32_DEVKIT_CHECKOUT_V1", "SERVO_RAW_PIN25_TEST"), {});
+  assert.deepEqual(commandPayloadForHardware("ESP32_DEVKIT_CHECKOUT_V1","SERVO_DIAG_START",{durationSec:60}),{durationSec:60});
+  assert.deepEqual(commandPayloadForHardware("ESP32_DEVKIT_CHECKOUT_V1","SERVO_DIAG_STOP"),{});
   assert.throws(() => commandPayloadForHardware("CROWPANEL_7_V3", "SERVO_RAW_PWM_TEST"));
   assert.throws(() => commandPayloadForHardware("CROWPANEL_7_V3", "SERVO_RAW_PIN25_TEST"));
-  assert.deepEqual(commandPayload("SET_SERVO_CONFIG", { closedAngle: 5, openAngle: 95, holdMs: 1200 }), {
-    closedAngle: 5, openAngle: 95, holdMs: 1200, allowedRfids: [],
+  assert.throws(()=>commandPayloadForHardware("CROWPANEL_7_V3","SERVO_DIAG_START",{durationSec:60}));
+  for(const durationSec of [9,11,121])
+    assert.throws(()=>commandPayload("SERVO_DIAG_START",{durationSec}));
+  assert.deepEqual(commandPayload("SET_SERVO_CONFIG", { closedAngle: 10, openAngle: 95, holdMs: 1200 }), {
+    closedAngle: 10, openAngle: 95, holdMs: 1200, allowedRfids: [],
   });
+  assert.throws(()=>servoConfiguration({closedAngle:5,openAngle:95,holdMs:1200}));
   assert.throws(() => servoConfiguration({ closedAngle: 90, openAngle: 90, holdMs: 1000 }));
   assert.throws(() => commandPayload("DESTROY"));
   assert.equal(deviceEvents({ events: [{ type: "RFID_READ", detail: "AABBCCDD", uptime_ms: 12 }] })[0].uptimeMs, 12);
   const checkoutDevice = { deviceId: "checkoutbox-lab-01", hardwareModel: "ESP32_DEVKIT_CHECKOUT_V1" };
   const patch = heartbeatPatch({ ...heartbeat(), device_id: checkoutDevice.deviceId,
     hardware_model: checkoutDevice.hardwareModel, last_rfid: "AABBCCDD",
-    last_rfid_raw: "020902AABBCCDD0003", trap_state: "CLOSED" }, checkoutDevice);
+    last_rfid_raw: "020902AABBCCDD0003", trap_state: "CLOSED",
+    servo_diag_state:"RUNNING",servo_diag_remaining_s:42 }, checkoutDevice);
   assert.equal(patch.lastRfid, "AABBCCDD");
+  assert.equal(patch.servoDiagnosticState,"RUNNING");
+  assert.equal(patch.servoDiagnosticRemaining,42);
+  assert.throws(()=>heartbeatPatch({...heartbeat(),device_id:checkoutDevice.deviceId,
+    hardware_model:checkoutDevice.hardwareModel,servo_diag_state:"COMPLETED",
+    servo_diag_remaining_s:1},checkoutDevice));
 });
 test("OTA states advance monotonically, require boot health for success and previous build for rollback", () => {
   assert.equal(

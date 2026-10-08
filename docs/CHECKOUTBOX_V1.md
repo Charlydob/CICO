@@ -31,8 +31,23 @@ This change is additive. Existing `CROWPANEL_7_V3` registration, firmware compat
 
 6. Upload only the `.pio/build/esp32dev/firmware.bin` application artifact as hardware `ESP32_DEVKIT_CHECKOUT_V1`. The server enforces the 1792 KiB slot limit and hardware match.
 
+## Manual SG90 diagnostic
+
+Only Platform Admin users can open **Devices / Firmware** and access the CheckoutBox controls. Select a duration of 10, 30, 60 or 120 seconds and press **INICIAR TEST**. The device cycles `10 -> 90 -> 170 -> 90`, one position per second, without blocking RFID, Wi-Fi, CICO or OTA communications. Press **DETENER TEST** for the priority stop command. The device returns to its configured closed angle after stop or timeout.
+
+The status is reported by heartbeat as Inactive, Running, Completed or Error. A command acknowledgement only confirms that the firmware accepted and issued the PWM position command; the SG90 has no position feedback and CICO must not present the ACK as proof of physical movement.
+
+The same operation is available locally at 115200 baud:
+
+```text
+servo test 60
+servo stop
+```
+
+Durations outside 10-120 seconds are rejected. The diagnostic is always inactive after reboot and never starts automatically. Normal servo movements and calibration writes are rejected while the diagnostic is running. STOP supersedes an already pending device command.
+
 ## Safe physical validation order
 
-Keep the MG90S horn disconnected for initial angle calibration. Validate UART raw frames first, then closed/open angles, then fit the horn and run Test. Add the observed UID to `allowedRfids` before expecting an offline RFID cycle. Finally test Internet loss during RFID reads and servo motion, followed by OTA success and an intentionally failed health boot to confirm rollback.
+Keep the SG90 horn disconnected for initial angle calibration. Verify 5 V at the servo connector under load, continuity of GPIO18 to the signal pin, and common ground before starting a diagnostic. Validate UART raw frames on GPIO23 first, then closed/open angles, then fit the horn and run the manual test. Add the observed UID to `allowedRfids` before expecting an offline RFID cycle. Finally test Internet loss during RFID reads and servo motion, followed by OTA success and an intentionally failed health boot to confirm rollback.
 
 No production deployment or device flash is performed by this repository change.

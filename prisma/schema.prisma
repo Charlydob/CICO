@@ -422,6 +422,8 @@ model Device {
   lastRfid               String?         @map("last_rfid")
   lastRfidRaw            String?         @map("last_rfid_raw")
   trapState              String?         @map("trap_state")
+  servoDiagnosticState   String?         @map("servo_diagnostic_state")
+  servoDiagnosticRemaining Int?          @map("servo_diagnostic_remaining")
   tokenHash              String?         @map("token_hash")
   credentialVersion      Int             @default(0) @map("credential_version")
   credentialRotatedAt    DateTime?       @map("credential_rotated_at")

@@ -7,8 +7,10 @@ export const HARDWARE = Object.freeze({
 });
 export const COMMANDS = Object.freeze([
   "OPEN_TRAP", "CLOSE_TRAP", "CYCLE_TRAP", "SET_SERVO_CONFIG",
-  "SERVO_RAW_PWM_TEST", "SERVO_RAW_PIN25_TEST", "CHECK_RFID", "RESTART", "CHECK_UPDATE",
+  "SERVO_DIAG_START", "SERVO_DIAG_STOP", "SERVO_RAW_PWM_TEST",
+  "SERVO_RAW_PIN25_TEST", "CHECK_RFID", "RESTART", "CHECK_UPDATE",
 ]);
+export const SERVO_DIAGNOSTIC_DURATIONS = Object.freeze([10,30,60,120]);
 export const ACTIVE_STATES = [
   "PENDING",
   "DOWNLOADING",
@@ -140,10 +142,18 @@ export function heartbeatPatch(body, device) {
     const lastRfid = textField(body.last_rfid, "last RFID", 64, true);
     const lastRfidRaw = textField(body.last_rfid_raw, "last RFID raw frame", 128, true);
     const trapState = textField(body.trap_state, "trap state", 16, true);
+    const servoDiagnosticState = textField(body.servo_diag_state, "servo diagnostic state", 16, true);
+    const servoDiagnosticRemaining = body.servo_diag_remaining_s === undefined
+      ? null : int(body.servo_diag_remaining_s,"servo diagnostic remaining seconds",0,120);
     if (lastRfid && !/^[A-Fa-f0-9]+$/.test(lastRfid)) throw otaError("Invalid RFID value.");
     if (lastRfidRaw && !/^[A-Fa-f0-9]+$/.test(lastRfidRaw)) throw otaError("Invalid RFID raw frame.");
     if (trapState && !["OPEN", "CLOSED"].includes(trapState)) throw otaError("Invalid trap state.");
-    Object.assign(checkout, { lastRfid, lastRfidRaw, trapState });
+    if (servoDiagnosticState && !["INACTIVE","RUNNING","COMPLETED","ERROR"].includes(servoDiagnosticState))
+      throw otaError("Invalid servo diagnostic state.");
+    if (servoDiagnosticState !== "RUNNING" && servoDiagnosticRemaining)
+      throw otaError("Servo diagnostic remaining time requires RUNNING state.");
+    Object.assign(checkout, { lastRfid, lastRfidRaw, trapState,
+      servoDiagnosticState, servoDiagnosticRemaining });
   }
   return {
     currentFirmwareVersion: version(body.firmware_version),
@@ -162,8 +172,8 @@ export function heartbeatPatch(body, device) {
   };
 }
 export function servoConfiguration(input, versionValue = null) {
-  const closedAngle = int(input.closedAngle, "closed angle", 0, 180);
-  const openAngle = int(input.openAngle, "open angle", 0, 180);
+  const closedAngle = int(input.closedAngle, "closed angle", 10, 170);
+  const openAngle = int(input.openAngle, "open angle", 10, 170);
   const holdMs = int(input.holdMs, "hold milliseconds", 100, 30000);
 
   if (closedAngle === openAngle)
@@ -203,6 +213,17 @@ export function commandPayload(type, payload) {
   if (type === "SET_SERVO_CONFIG")
     return servoConfiguration(payload || {});
 
+  if(type === "SERVO_DIAG_START") {
+    if(!payload || Array.isArray(payload) || typeof payload !== "object")
+      throw otaError("Servo diagnostic payload must be an object.");
+    const durationSec=int(payload.durationSec,"servo diagnostic duration",10,120);
+    if(!SERVO_DIAGNOSTIC_DURATIONS.includes(durationSec))
+      throw otaError("Servo diagnostic duration must be 10, 30, 60 or 120 seconds.");
+    return {durationSec};
+  }
+
+  if(type === "SERVO_DIAG_STOP") return {};
+
   if (
     payload !== undefined &&
     (payload === null ||
@@ -217,10 +238,10 @@ export function commandPayload(type, payload) {
 export function commandPayloadForHardware(hardwareModel, type, payload) {
   hardwareSpec(hardwareModel);
   if (
-    ["SERVO_RAW_PWM_TEST", "SERVO_RAW_PIN25_TEST"].includes(type) &&
+    ["SERVO_DIAG_START","SERVO_DIAG_STOP","SERVO_RAW_PWM_TEST", "SERVO_RAW_PIN25_TEST"].includes(type) &&
     hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1"
   )
-    throw otaError("Raw servo PWM test is only available for CheckoutBox hardware.", 409);
+    throw otaError("Servo diagnostics are only available for CheckoutBox hardware.", 409);
   return commandPayload(type, payload);
 }
 
