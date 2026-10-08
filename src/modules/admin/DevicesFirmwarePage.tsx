@@ -51,6 +51,12 @@ function isNewer(candidate: string, current: string | null) {
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
   return false;
 }
+function servoDiagnosticLabel(state: PhysicalDevice["servoDiagnosticState"]) {
+  if(state==="RUNNING") return "Ejecutándose";
+  if(state==="COMPLETED") return "Terminado";
+  if(state==="ERROR") return "Error";
+  return "Inactivo";
+}
 export function DevicesFirmwarePage() {
   const { session } = useAuth();
   const [tab, setTab] = useState<"devices" | "releases">("devices");
@@ -77,6 +83,7 @@ export function DevicesFirmwarePage() {
   });
   const [calibration, setCalibration] = useState({ closedAngle: 10, openAngle: 90, holdMs: 1500 });
   const [rfidAllowlist, setRfidAllowlist] = useState("");
+  const [servoDiagnosticDuration,setServoDiagnosticDuration]=useState<10|30|60|120>(60);
   useEffect(() => {
     if (selected?.hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1") return;
     setCalibration({
@@ -169,6 +176,7 @@ export function DevicesFirmwarePage() {
           isNewer(release.version, updateDevice.currentFirmwareVersion),
       )
     : [];
+  const servoDiagnosticRunning=selected?.servoDiagnosticState==="RUNNING";
   return (
     <section className="module-page ota-page">
       <div className="module-title">
@@ -517,6 +525,8 @@ export function DevicesFirmwarePage() {
                 "Last RFID": selected.lastRfid,
                 "RFID raw frame": selected.lastRfidRaw,
                 "Trap": selected.trapState,
+                "Diagnóstico SG90": servoDiagnosticLabel(selected.servoDiagnosticState),
+                "Diagnóstico restante (s)": selected.servoDiagnosticRemaining,
                 Credentials: selected.credentialConfigured
                   ? "Provisioned"
                   : "Not provisioned / Revoked",
@@ -531,11 +541,11 @@ export function DevicesFirmwarePage() {
               <section className="panel settings-form ota-form" aria-label="Trap calibration">
                 <h3>Trap calibration</h3>
                 <label>Closed
-                  <input type="number" min="0" max="180" value={calibration.closedAngle}
+                  <input type="number" min="10" max="170" value={calibration.closedAngle}
                     onChange={(e) => setCalibration({ ...calibration, closedAngle: Number(e.target.value) })} />
                 </label>
                 <label>Open
-                  <input type="number" min="0" max="180" value={calibration.openAngle}
+                  <input type="number" min="10" max="170" value={calibration.openAngle}
                     onChange={(e) => setCalibration({ ...calibration, openAngle: Number(e.target.value) })} />
                 </label>
                 <label>Hold (ms)
@@ -547,17 +557,32 @@ export function DevicesFirmwarePage() {
                     onChange={(e) => setRfidAllowlist(e.target.value)} />
                 </label>
                 <div className="ota-tabs">
-                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "SET_SERVO_CONFIG", calibration), "Move queued.")}>Move</button>
-                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "OPEN_TRAP"), "Open queued.")}>Open</button>
-                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CLOSE_TRAP"), "Close queued.")}>Close</button>
-                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "CYCLE_TRAP"), "Test cycle queued.")}>Test</button>
-                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "SERVO_RAW_PWM_TEST"), "Raw PWM test queued.")}>Test PWM crudo</button>
-                  <button disabled={busy} onClick={() => void run(() => sendDeviceCommand(selected.id, "SERVO_RAW_PIN25_TEST"), "GPIO25 servo test queued.")}>Test servo GPIO25</button>
-                  <button className="primary-button" disabled={busy} onClick={() => void run(() => updateDeviceConfiguration(selected.id, {
+                  <button disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => sendDeviceCommand(selected.id, "SET_SERVO_CONFIG", calibration), "Move queued.")}>Move</button>
+                  <button disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => sendDeviceCommand(selected.id, "OPEN_TRAP"), "Open queued.")}>Open</button>
+                  <button disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => sendDeviceCommand(selected.id, "CLOSE_TRAP"), "Close queued.")}>Close</button>
+                  <button disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => sendDeviceCommand(selected.id, "CYCLE_TRAP"), "Test cycle queued.")}>Test</button>
+                  <button className="primary-button" disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => updateDeviceConfiguration(selected.id, {
                     ...calibration,
                     allowedRfids: rfidAllowlist.split(",").map((value) => value.trim()).filter(Boolean),
                   }), "Configuration saved for sync.")}>Save</button>
                 </div>
+                <h3>Diagnóstico SG90</h3>
+                <p>Estado: <strong>{servoDiagnosticLabel(selected.servoDiagnosticState)}</strong>
+                  {servoDiagnosticRunning?` · ${selected.servoDiagnosticRemaining??0} s restantes`:""}
+                </p>
+                <label>Duración
+                  <select value={servoDiagnosticDuration}
+                    onChange={(event)=>setServoDiagnosticDuration(Number(event.target.value) as 10|30|60|120)}>
+                    {[10,30,60,120].map((seconds)=><option key={seconds} value={seconds}>{seconds} segundos</option>)}
+                  </select>
+                </label>
+                <div className="ota-tabs">
+                  <button className="primary-button" disabled={busy||servoDiagnosticRunning}
+                    onClick={()=>void run(()=>sendDeviceCommand(selected.id,"SERVO_DIAG_START",{durationSec:servoDiagnosticDuration}),"Inicio de diagnóstico encolado.")}>INICIAR TEST</button>
+                  <button disabled={busy}
+                    onClick={()=>void run(()=>sendDeviceCommand(selected.id,"SERVO_DIAG_STOP"),"Parada de diagnóstico prioritaria encolada.")}>DETENER TEST</button>
+                </div>
+                <p>El ACK confirma que el firmware aceptó y ordenó el movimiento; el SG90 no proporciona realimentación física de posición.</p>
               </section>
             )}
             <div className="ota-tabs">
@@ -659,6 +684,7 @@ export function DevicesFirmwarePage() {
                   ? "EXPIRED"
                   : command.status}{" "}
                 · {new Date(command.createdAt).toLocaleString()}
+                {command.result?.value?` · ${command.result.ok?"ACK":"ERROR"}: ${command.result.value}`:""}
               </p>
             ))}
             {selected.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" && (

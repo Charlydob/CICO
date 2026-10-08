@@ -51,6 +51,8 @@ export interface PhysicalDevice {
   lastRfid: string | null;
   lastRfidRaw: string | null;
   trapState: string | null;
+  servoDiagnosticState: "INACTIVE" | "RUNNING" | "COMPLETED" | "ERROR" | null;
+  servoDiagnosticRemaining: number | null;
   desiredConfig: {
     version?: string;
     closedAngle?: number;

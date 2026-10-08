@@ -317,6 +317,8 @@ export function createOtaService(prisma, storage) {
             throw otaError("Select a newer firmware version.", 409);
           if (await activeUpdate(tx, id))
             throw otaError("Device already has an active update.", 409);
+          if (device.servoDiagnosticState === "RUNNING")
+            throw otaError("Stop the servo diagnostic before starting OTA.",409);
           if (
             await tx.deviceCommand.count({
               where: {
@@ -536,16 +538,19 @@ export function createOtaService(prisma, storage) {
           throw otaError("Device is not provisioned.", 409);
         if (await activeUpdate(tx, id))
           throw otaError("Commands are disabled during OTA.", 409);
-        if (
-          await tx.deviceCommand.count({
-            where: {
-              deviceId: id,
-              status: "PENDING",
-              expiresAt: { gt: new Date() },
-            },
-          })
-        )
+        const servoMovementCommands=["OPEN_TRAP","CLOSE_TRAP","CYCLE_TRAP","SET_SERVO_CONFIG","SERVO_DIAG_START"];
+        if(device.servoDiagnosticState==="RUNNING" && servoMovementCommands.includes(type))
+          throw otaError("Stop the running servo diagnostic first.",409);
+        const pendingWhere={deviceId:id,status:"PENDING",expiresAt:{gt:new Date()}};
+        const pendingCount=await tx.deviceCommand.count({where:pendingWhere});
+        if(pendingCount && type!=="SERVO_DIAG_STOP")
           throw otaError("Device already has a pending command.", 409);
+        if(pendingCount) {
+          await tx.deviceCommand.updateMany({where:pendingWhere,data:{
+            status:"CANCELLED",completedAt:new Date(),
+            result:{ok:false,value:"superseded_by_servo_diagnostic_stop"},
+          }});
+        }
         return tx.deviceCommand.create({
           data: {
             deviceId: id,
