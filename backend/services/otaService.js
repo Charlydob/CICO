@@ -538,9 +538,15 @@ export function createOtaService(prisma, storage) {
           throw otaError("Device is not provisioned.", 409);
         if (await activeUpdate(tx, id))
           throw otaError("Commands are disabled during OTA.", 409);
-        const servoMovementCommands=["OPEN_TRAP","CLOSE_TRAP","CYCLE_TRAP","SET_SERVO_CONFIG","SERVO_DIAG_START"];
+        const servoMovementCommands=[
+          "OPEN_TRAP", "CLOSE_TRAP", "CYCLE_TRAP", "SET_SERVO_CONFIG",
+          "SERVO_DIAG_START", "SERVO_RAW_PWM_TEST", "SERVO_RAW_PIN25_TEST",
+        ];
         if(device.servoDiagnosticState==="RUNNING" && servoMovementCommands.includes(type))
           throw otaError("Stop the running servo diagnostic first.",409);
+        if(type==="SERVO_DIAG_START" && device.desiredConfig?.version &&
+          device.desiredConfig.version!==device.configVersion)
+          throw otaError("Wait for the pending servo configuration to synchronize.",409);
         const pendingWhere={deviceId:id,status:"PENDING",expiresAt:{gt:new Date()}};
         const pendingCount=await tx.deviceCommand.count({where:pendingWhere});
         if(pendingCount && type!=="SERVO_DIAG_STOP")
@@ -574,14 +580,31 @@ export function createOtaService(prisma, storage) {
           const command = await tx.deviceCommand.findUnique({ where: { id } });
           if (!command || command.deviceId !== device.id)
             throw otaError("Command not found.", 404);
-          if (command.status === "ACKNOWLEDGED")
-            return { accepted: true, duplicate: true };
+          if (command.status !== "PENDING")
+            return { accepted: true, duplicate: true, status: command.status };
           if (new Date(command.expiresAt) <= new Date())
             throw otaError("Command expired.", 409);
           await tx.deviceCommand.update({
             where: { id },
             data: { status: "ACKNOWLEDGED", completedAt: new Date(), result },
           });
+          if (body.ok === true && command.type === "SERVO_DIAG_START") {
+            await tx.device.update({
+              where: { id: device.id },
+              data: {
+                servoDiagnosticState: "RUNNING",
+                servoDiagnosticRemaining: command.payload.durationSec,
+              },
+            });
+          } else if (body.ok === true && command.type === "SERVO_DIAG_STOP") {
+            await tx.device.update({
+              where: { id: device.id },
+              data: {
+                servoDiagnosticState: "COMPLETED",
+                servoDiagnosticRemaining: 0,
+              },
+            });
+          }
           return { accepted: true };
         },
         device,
@@ -594,6 +617,16 @@ export function createOtaService(prisma, storage) {
       return withDevice(id, async (tx, device) => {
         if (device.hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1")
           throw otaError("Servo configuration is only available for CheckoutBox hardware.", 409);
+        const pendingDiagnostic = await tx.deviceCommand.count({
+          where: {
+            deviceId: id,
+            type: "SERVO_DIAG_START",
+            status: "PENDING",
+            expiresAt: { gt: new Date() },
+          },
+        });
+        if (device.servoDiagnosticState === "RUNNING" || pendingDiagnostic)
+          throw otaError("Stop the servo diagnostic before changing configuration.", 409);
         await tx.device.update({ where: { id }, data: { desiredConfig: config } });
         return config;
       });
