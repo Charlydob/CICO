@@ -184,14 +184,14 @@ export function servoConfiguration(input, versionValue = null) {
 
   if (
     !Array.isArray(allowedRfids) ||
-    allowedRfids.length > 500 ||
+    allowedRfids.length > 128 ||
     allowedRfids.some(
       (value) =>
         typeof value !== "string" ||
-        !/^[A-Fa-f0-9]{1,64}$/.test(value),
+        !/^[A-Fa-f0-9]{8}$/.test(value),
     )
   )
-    throw otaError("Invalid RFID allowlist.");
+    throw otaError("RFID allowlist entries must be exactly 8 hexadecimal characters; maximum 128 entries.");
 
   return {
     closedAngle,

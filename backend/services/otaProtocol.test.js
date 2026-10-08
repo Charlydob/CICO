@@ -141,6 +141,15 @@ test("CheckoutBox hardware, servo commands and telemetry are strictly validated"
   assert.deepEqual(commandPayload("SET_SERVO_CONFIG", { closedAngle: 10, openAngle: 95, holdMs: 1200 }), {
     closedAngle: 10, openAngle: 95, holdMs: 1200, allowedRfids: [],
   });
+  assert.deepEqual(commandPayload("SET_SERVO_CONFIG", {
+    closedAngle: 10, openAngle: 95, holdMs: 1200, allowedRfids: ["aabbccdd"],
+  }).allowedRfids, ["AABBCCDD"]);
+  assert.throws(() => commandPayload("SET_SERVO_CONFIG", {
+    closedAngle: 10, openAngle: 95, holdMs: 1200, allowedRfids: ["AABBCCDDEEFF"],
+  }));
+  assert.throws(() => commandPayload("SET_SERVO_CONFIG", {
+    closedAngle: 10, openAngle: 95, holdMs: 1200, allowedRfids: ["AABBCCD"],
+  }));
   assert.throws(()=>servoConfiguration({closedAngle:5,openAngle:95,holdMs:1200}));
   assert.throws(() => servoConfiguration({ closedAngle: 90, openAngle: 90, holdMs: 1000 }));
   assert.throws(() => commandPayload("DESTROY"));
