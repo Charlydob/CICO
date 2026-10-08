@@ -37,6 +37,13 @@ Only Platform Admin users can open **Devices / Firmware** and access the Checkou
 
 The status is reported by heartbeat as Inactive, Running, Completed or Error. A command acknowledgement only confirms that the firmware accepted and issued the PWM position command; the SG90 has no position feedback and CICO must not present the ACK as proof of physical movement.
 
+RFID allowlists use the same contract as the firmware: at most 128 entries, each
+exactly 8 hexadecimal characters. For the 10-byte EM4100 UART frame, the
+firmware keeps the four UID bytes after the hidden byte (for example,
+`02 0A 02 2E 00 B6 D7 B5 F2 03` becomes `00B6D7B5`). The hidden byte and BCC
+are not part of the allowlist value. Invalid lengths are rejected instead of
+being silently truncated or converted.
+
 The same operation is available locally at 115200 baud:
 
 ```text
