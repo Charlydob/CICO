@@ -86,12 +86,20 @@ jobs:
               echo "Cannot back up production: DATABASE_URL is unavailable"
               exit 1
             fi
+            # Prisma accepts the schema query parameter, but libpq/pg_dump does not.
+            # Strip only that Prisma-only option for the backup client; keep the
+            # original DATABASE_URL unchanged for the application and migrations.
+            PG_DUMP_URL="$(printf '%s' "$DATABASE_URL" | sed -E 's/\?schema=[^&]*&/?/; s/&schema=[^&]*//g; s/\?schema=[^&]*$//; s/[?&]$//')"
+            if [ -z "$PG_DUMP_URL" ]; then
+              echo "Cannot back up production: pg_dump connection URL is empty"
+              exit 1
+            fi
             docker run --rm --network charly-stack_default \
               -e DATABASE_URL="$DATABASE_URL" \
               -v "$BACKUP_DIR:/backup" \
               postgres:16-alpine \
               pg_dump --format=custom --no-owner --no-acl \
-                --file=/backup/hotelapp.dump "$DATABASE_URL"
+                --file=/backup/hotelapp.dump "$PG_DUMP_URL"
             test -s "$BACKUP_DIR/hotelapp.dump"
 
             DATA_VOLUME="$(docker inspect "$BACKEND_CONTAINER" --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}')"
