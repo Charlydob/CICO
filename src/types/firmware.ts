@@ -20,6 +20,13 @@ export interface OtaUpdate {
   updatedAt: string;
   stalled: boolean;
   release: FirmwareRelease;
+  reconciliation?: {
+    installedVersion: string | null;
+    installedBuild: string | null;
+    versionMatches: boolean;
+    buildMatches: boolean;
+    state: "INSTALLED_MATCHES_RELEASE"|"INSTALLED_BUILD_MISMATCH"|"INSTALLED_VERSION_DIFFERS";
+  };
   events?: Array<{
     id: string;
     status: string;
@@ -48,6 +55,16 @@ export interface CheckoutBoxConfiguration {
 export interface DeviceRfidKey {
   id:string; uid:string; name:string; room:string; authorized:boolean; active:boolean;
   firstSeenAt:string|null; lastSeenAt:string|null; createdAt:string; updatedAt:string;
+}
+export interface DeviceRfidReading {
+  id:string; deviceId:string; tenantId:string|null; keyId:string|null;
+  checkoutEventId:string|null; uid:string; keyName:string; room:string;
+  hotelName:string; authorized:boolean; active:boolean; duplicate:boolean;
+  eventType:"RFID_READ"|"RETURN_RECORDED"; result:string;
+  diagnostic:string|null; deviceUptimeMs:number; createdAt:string;
+}
+export interface DeviceHistoryPage<T> {
+  items:T[]; total:number; page:number; pageSize:number; pages:number;
 }
 export interface PhysicalDevice {
   id: string;
@@ -94,5 +111,11 @@ export interface PhysicalDevice {
   }>;
   events?: Array<{ id: string; type: string; detail: string | null; uptimeMs: number; createdAt: string }>;
   rfidKeys?: DeviceRfidKey[];
+  rfidReadings?: DeviceRfidReading[];
+  tenantAssignments?: Array<{
+    id:string; fromTenantId:string|null; fromTenantName:string;
+    toTenantId:string|null; toTenantName:string; createdAt:string;
+  }>;
+  historyTotals?: { rfidReadings:number; commands:number; otaUpdates:number };
   tenant?: { id: string; name: string } | null;
 }

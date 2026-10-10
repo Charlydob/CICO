@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { sendRfidReturnPush } from "./webPushService.js";
 import {
   ACTIVE_STATES,
   TERMINAL_STATES,
@@ -73,22 +74,43 @@ async function activeUpdate(tx, deviceId) {
     orderBy: { createdAt: "desc" },
   });
 }
-function publicUpdate(update) {
+function publicUpdate(update, device) {
   if (!update) return null;
   const { release, ...rest } = update;
+  const versionMatches = Boolean(
+    device?.currentFirmwareVersion &&
+      release?.version === device.currentFirmwareVersion,
+  );
+  const buildMatches = Boolean(
+    device?.currentBuildId && release?.buildId === device.currentBuildId,
+  );
   return {
     ...rest,
     ...(release ? { release: publicRelease(release) } : {}),
     stalled:
       ACTIVE_STATES.includes(update.status) &&
       Date.now() - new Date(update.updatedAt).getTime() > 10 * 60_000,
+    reconciliation: device
+      ? {
+          installedVersion: device.currentFirmwareVersion,
+          installedBuild: device.currentBuildId,
+          versionMatches,
+          buildMatches,
+          state:
+            versionMatches && buildMatches
+              ? "INSTALLED_MATCHES_RELEASE"
+              : versionMatches
+                ? "INSTALLED_BUILD_MISMATCH"
+                : "INSTALLED_VERSION_DIFFERS",
+        }
+      : undefined,
   };
 }
 export function publicRelease(release) {
   const { storagePath, ...safe } = release;
   return safe;
 }
-export function createOtaService(prisma, storage) {
+export function createOtaService(prisma, storage, { database } = {}) {
   async function withDevice(id, fn, authenticated) {
     return prisma.$transaction(
       async (tx) => fn(tx, await lockDevice(tx, id, authenticated)),
@@ -109,7 +131,7 @@ export function createOtaService(prisma, storage) {
       });
       return devices.map(({ updates, ...device }) => ({
         ...publicDevice(device),
-        latestUpdate: publicUpdate(updates[0]),
+        latestUpdate: publicUpdate(updates[0], device),
       }));
     },
     async getDevice(id) {
@@ -128,12 +150,23 @@ export function createOtaService(prisma, storage) {
           commands: { take: 20, orderBy: { createdAt: "desc" } },
           events: { take: 100, orderBy: { createdAt: "desc" } },
           rfidKeys: { take: 128, orderBy: [{ lastSeenAt: "desc" }, { updatedAt: "desc" }] },
+          rfidReadings: { take: 25, orderBy: { createdAt: "desc" } },
+          tenantAssignments: { take: 10, orderBy: { createdAt: "desc" } },
           tenant: { select: { name: true, id: true } },
         },
       });
       if (!device) throw otaError("Device not found.", 404);
       const { updates, ...rest } = device;
-      return { ...publicDevice(rest), updates: updates.map(publicUpdate) };
+      const [rfidReadings, commands, otaUpdates] = await Promise.all([
+        prisma.deviceRfidReading.count({ where: { deviceId: id } }),
+        prisma.deviceCommand.count({ where: { deviceId: id } }),
+        prisma.otaRequest.count({ where: { deviceId: id } }),
+      ]);
+      return {
+        ...publicDevice(rest),
+        updates: updates.map((update) => publicUpdate(update, device)),
+        historyTotals: { rfidReadings, commands, otaUpdates },
+      };
     },
     async createDevice(input) {
       const deviceId = textField(input.deviceId, "device ID", 64);
@@ -165,6 +198,97 @@ export function createOtaService(prisma, storage) {
           throw otaError("Device ID is already registered.", 409);
         throw error;
       }
+    },
+    async assignTenant(id, tenantIdInput, assignedBy) {
+      uuid(id);
+      uuid(assignedBy, "assigning user ID");
+      const tenantId = tenantIdInput ? uuid(tenantIdInput, "tenant ID") : null;
+      return withDevice(id, async (tx, device) => {
+        const [fromTenant, toTenant] = await Promise.all([
+          device.tenantId
+            ? tx.tenant.findUnique({ where: { id: device.tenantId } })
+            : null,
+          tenantId ? tx.tenant.findUnique({ where: { id: tenantId } }) : null,
+        ]);
+        if (tenantId && !toTenant) throw otaError("Tenant not found.", 404);
+        if (device.tenantId === tenantId)
+          return publicDevice({ ...device, tenant: toTenant });
+        await tx.deviceTenantAssignment.create({
+          data: {
+            deviceId: id,
+            fromTenantId: device.tenantId,
+            fromTenantName: fromTenant?.name || "",
+            toTenantId: tenantId,
+            toTenantName: toTenant?.name || "",
+            assignedBy,
+          },
+        });
+        return publicDevice(
+          await tx.device.update({
+            where: { id },
+            data: { tenantId },
+            include: { tenant: { select: { id: true, name: true } } },
+          }),
+        );
+      });
+    },
+    async listRfidReadings(id, input = {}) {
+      uuid(id);
+      const page = Math.max(1, Math.min(100000, Number(input.page) || 1));
+      const pageSize = Math.max(1, Math.min(100, Number(input.pageSize) || 25));
+      const where = { deviceId: id };
+      if (input.room) where.room = { contains: textField(input.room, "room filter", 64), mode: "insensitive" };
+      if (input.uid) where.uid = { contains: textField(input.uid, "UID filter", 10).toUpperCase() };
+      if (input.result) where.result = textField(input.result, "result filter", 64);
+      const createdAt = {};
+      if (input.from) {
+        const from = new Date(input.from);
+        if (!Number.isFinite(from.getTime())) throw otaError("Invalid from date.");
+        createdAt.gte = from;
+      }
+      if (input.to) {
+        const to = new Date(input.to);
+        if (!Number.isFinite(to.getTime())) throw otaError("Invalid to date.");
+        createdAt.lte = to;
+      }
+      if (Object.keys(createdAt).length) where.createdAt = createdAt;
+      const [items, total] = await Promise.all([
+        prisma.deviceRfidReading.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        prisma.deviceRfidReading.count({ where }),
+      ]);
+      return { items, total, page, pageSize, pages: Math.ceil(total / pageSize) };
+    },
+    async listHistory(id, input = {}) {
+      uuid(id);
+      const kind = input.kind === "updates" ? "updates" : "commands";
+      const page = Math.max(1, Math.min(100000, Number(input.page) || 1));
+      const pageSize = Math.max(1, Math.min(50, Number(input.pageSize) || 20));
+      const where = { deviceId: id };
+      const model = kind === "updates" ? prisma.otaRequest : prisma.deviceCommand;
+      const [items, total] = await Promise.all([
+        model.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+          ...(kind === "updates"
+            ? { include: { release: true, events: { orderBy: { createdAt: "desc" } } } }
+            : {}),
+        }),
+        model.count({ where }),
+      ]);
+      return {
+        items: kind === "updates" ? items.map((item) => publicUpdate(item)) : items,
+        total,
+        page,
+        pageSize,
+        pages: Math.ceil(total / pageSize),
+      };
     },
     async rotateCredential(id) {
       uuid(id);
@@ -224,6 +348,12 @@ export function createOtaService(prisma, storage) {
         async (tx, current) => {
           const active = await activeUpdate(tx, device.id);
           const targetTransition = heartbeatTargetTransition(active, body);
+          const installedBuildMismatch = Boolean(
+            active &&
+              ["REBOOTING", "HEALTH_CHECK"].includes(active.status) &&
+              body.firmware_version === active.release.version &&
+              body.build_id !== active.release.buildId,
+          );
           // A device can retain an OTA phase in NVS after an administrator
           // cancels its request. Keep the audited cancellation result as the
           // server source of truth while the device clears that stale phase.
@@ -239,6 +369,23 @@ export function createOtaService(prisma, storage) {
             });
             await tx.otaEvent.create({
               data: { requestId: active.id, status: targetTransition, progress },
+            });
+          } else if (installedBuildMismatch) {
+            await tx.otaRequest.update({
+              where: { id: active.id },
+              data: {
+                status: "FAILED",
+                resultCode: "INSTALLED_BUILD_MISMATCH",
+                completedAt: new Date(),
+              },
+            });
+            await tx.otaEvent.create({
+              data: {
+                requestId: active.id,
+                status: "FAILED",
+                progress: active.progress,
+                resultCode: "INSTALLED_BUILD_MISMATCH",
+              },
             });
           }
           await tx.device.update({
@@ -261,6 +408,13 @@ export function createOtaService(prisma, storage) {
                       : {}),
                   }
                 : {}),
+              ...(installedBuildMismatch
+                ? {
+                    lastOtaStatus: "FAILED",
+                    lastOtaResult: "INSTALLED_BUILD_MISMATCH",
+                    targetFirmwareVersion: null,
+                  }
+                : {}),
             },
           });
           return {
@@ -271,6 +425,9 @@ export function createOtaService(prisma, storage) {
               : {}),
             ...(targetTransition === "SUCCESS"
               ? { ota_reconciled: true }
+              : {}),
+            ...(installedBuildMismatch
+              ? { ota_reconciliation_error: "INSTALLED_BUILD_MISMATCH" }
               : {}),
           };
         },
@@ -600,7 +757,17 @@ export function createOtaService(prisma, storage) {
           device.desiredConfig.version!==device.configVersion)
           throw otaError("Wait for the pending servo configuration to synchronize.",409);
         const pendingWhere={deviceId:id,status:"PENDING",expiresAt:{gt:new Date()}};
-        const pendingCount=await tx.deviceCommand.count({where:pendingWhere});
+        let pendingCount=await tx.deviceCommand.count({where:pendingWhere});
+        if(pendingCount && type==="TEST_SERVO_POSITION") {
+          await tx.deviceCommand.updateMany({
+            where:{...pendingWhere,type:"TEST_SERVO_POSITION"},
+            data:{
+              status:"CANCELLED",completedAt:new Date(),
+              result:{ok:false,value:"superseded_by_newer_preview_position"},
+            },
+          });
+          pendingCount=await tx.deviceCommand.count({where:pendingWhere});
+        }
         if(pendingCount && type!=="SERVO_DIAG_STOP")
           throw otaError("Device already has a pending command.", 409);
         if(pendingCount) {
@@ -719,18 +886,69 @@ export function createOtaService(prisma, storage) {
     },
     async ingestEvents(device, body) {
       const events = deviceEvents(body);
-      await prisma.$transaction(async(tx)=>{
+      const notifications = await prisma.$transaction(async(tx)=>{
+        const queuedNotifications=[];
+        // Serialize event batches per device so simultaneous polls cannot both
+        // create a return before either one can observe the other reading.
+        if(typeof tx.$queryRaw==="function")
+          await tx.$queryRaw`WITH lock AS (SELECT pg_advisory_xact_lock(hashtext(${`rfid:${device.id}`}))) SELECT 1::int FROM lock`;
         await tx.deviceEvent.createMany({data:events.map((event)=>({...event,deviceId:device.id}))});
         for(const event of events) {
           if(event.type==="RFID_READ") {
             const match=event.detail?.match(/^([A-Fa-f0-9]{8}|[A-Fa-f0-9]{10})(?:\s|$)/);
             if(match) {
               const uid=match[1].toUpperCase(),seen=new Date();
-              await tx.deviceRfidKey.upsert({
+              const key=await tx.deviceRfidKey.upsert({
                 where:{deviceId_uid:{deviceId:device.id,uid}},
                 create:{deviceId:device.id,uid,firstSeenAt:seen,lastSeenAt:seen},
                 update:{lastSeenAt:seen},
               });
+              const duplicateWindowMs=Math.max(
+                1500,
+                Math.min(10000,Number(device.desiredConfig?.duplicateRfidMs)||1500),
+              );
+              const previous=await tx.deviceRfidReading.findFirst({
+                where:{deviceId:device.id,uid},orderBy:{createdAt:"desc"},
+              });
+              const duplicate=Boolean(previous&&seen.getTime()-new Date(previous.createdAt).getTime()<duplicateWindowMs);
+              const tenant=device.tenantId
+                ? await tx.tenant.findUnique({where:{id:device.tenantId}})
+                : null;
+              const normalizedRoom=key.room.replace(/^habitaci[oó]n\s+/i,"").trim();
+              const room=tenant&&normalizedRoom
+                ? await tx.room.findFirst({where:{
+                    tenantId:tenant.id,active:true,deletedAt:null,
+                    OR:[
+                      {number:{equals:normalizedRoom,mode:"insensitive"}},
+                      {name:{equals:normalizedRoom,mode:"insensitive"}},
+                    ],
+                  }})
+                : null;
+              const validReturn=Boolean(key.authorized&&key.active&&tenant&&room&&!duplicate);
+              const reading=await tx.deviceRfidReading.create({data:{
+                deviceId:device.id,tenantId:tenant?.id||null,keyId:key.id,uid,
+                keyName:key.name,room:key.room,hotelName:tenant?.name||"",
+                authorized:key.authorized,active:key.active,duplicate,
+                eventType:validReturn?"RETURN_RECORDED":"RFID_READ",
+                result:duplicate?"DUPLICATE_SUPPRESSED":validReturn?"AUTHORIZED_RETURN_RECORDED":
+                  key.authorized&&key.active?"AUTHORIZED_ROOM_NOT_LINKED":"NOT_AUTHORIZED",
+                diagnostic:event.detail||null,deviceUptimeMs:event.uptimeMs,
+              }});
+              if(validReturn) {
+                const checkoutEvent=await tx.checkoutEvent.create({data:{
+                  tenantId:tenant.id,roomId:room.id,source:"rfid_return",
+                  sourceIdentifier:reading.id,status:"recorded_unconfirmed",
+                  metadata:{
+                    deviceId:device.id,deviceName:device.name,uid,
+                    keyName:key.name,roomSnapshot:key.room,hotelSnapshot:tenant.name,
+                    physicalConfirmation:false,rule:"authorized_rfid_read",
+                  },
+                }});
+                await tx.deviceRfidReading.update({
+                  where:{id:reading.id},data:{checkoutEventId:checkoutEvent.id},
+                });
+                queuedNotifications.push({tenant,room,event:checkoutEvent});
+              }
             }
           } else if(event.type==="CONFIG_REJECTED"||event.type==="CONFIG_STALE_REJECTED") {
             await tx.device.update({where:{id:device.id},data:{configRejectedReason:event.detail||event.type}});
@@ -740,7 +958,12 @@ export function createOtaService(prisma, storage) {
           where:{deviceId:device.id},orderBy:{createdAt:"desc"},skip:999,select:{createdAt:true},
         });
         if(cutoff) await tx.deviceEvent.deleteMany({where:{deviceId:device.id,createdAt:{lt:cutoff.createdAt}}});
+        return queuedNotifications;
       });
+      if(database) for(const notification of notifications)
+        void sendRfidReturnPush(database,notification).catch((error)=>
+          console.warn(`[WebPush] RFID return notification failed: ${error instanceof Error?error.message:"unknown error"}`),
+        );
       return { accepted: true, count: events.length };
     },
   };

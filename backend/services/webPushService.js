@@ -562,6 +562,29 @@ export async function sendNewCheckoutPush(database, { tenant, room, event }) {
   return { recipients: recipients.length, results };
 }
 
+export async function sendRfidReturnPush(database, { tenant, room, event }) {
+  const badge = await pendingBadgeCount(database, tenant.id);
+  const payload = basePayload({
+    type: "checkout.rfid_return_recorded",
+    tenant,
+    room,
+    event,
+    badge,
+    title: "Nueva devolución registrada",
+    body: `Habitación ${room.number} · lectura RFID autorizada.`,
+  });
+  const recipients = await recipientsForTenant(
+    database,
+    tenant.id,
+    ({ role, preference }) => canUseHousekeeping(role) && Boolean(preference.newCheckout),
+  );
+  const results = await Promise.allSettled(
+    recipients.map((recipient) => sendPayloadToUser(database, recipient.user.id, payload)),
+  );
+
+  return { recipients: recipients.length, results };
+}
+
 export async function sendAssignmentPush(database, { tenant, room, event, assignedUserId }) {
   const preference = await getPushPreference(database, assignedUserId, tenant.id);
   if (!preference?.enabled || !preference.assignedToMe) {

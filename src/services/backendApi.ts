@@ -1382,6 +1382,18 @@ export function getDevice(id: string) {
 export function registerDevice(input: { deviceId: string; name: string; hardwareModel: string; tenantId: string | null }) {
   return requestJson<import("../types/firmware").PhysicalDevice>("/api/admin/devices", { method: "POST", body: JSON.stringify(input) });
 }
+export function assignDeviceTenant(id:string,tenantId:string|null) {
+  return requestJson<import("../types/firmware").PhysicalDevice>(`/api/admin/devices/${encodeURIComponent(id)}/tenant`,{method:"PATCH",body:JSON.stringify({tenantId})});
+}
+export function getDeviceRfidReadings(id:string,filters:Record<string,string|number|undefined>={}) {
+  const params=new URLSearchParams();
+  for(const [key,value] of Object.entries(filters)) if(value!==undefined&&value!=="") params.set(key,String(value));
+  return requestJson<import("../types/firmware").DeviceHistoryPage<import("../types/firmware").DeviceRfidReading>>(`/api/admin/devices/${encodeURIComponent(id)}/rfid-readings?${params}`);
+}
+export function getDeviceHistory(id:string,kind:"commands"|"updates",page=1) {
+  const params=new URLSearchParams({kind,page:String(page)});
+  return requestJson<import("../types/firmware").DeviceHistoryPage<Record<string,unknown>>>(`/api/admin/devices/${encodeURIComponent(id)}/history?${params}`);
+}
 export function getFirmwareReleases() {
   return requestJson<import("../types/firmware").FirmwareRelease[]>("/api/admin/firmware-releases");
 }

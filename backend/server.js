@@ -289,7 +289,7 @@ const status = {
 
 const database = createDatabaseClient();
 const firmwareStorage = createFirmwareStorage();
-const otaService = createOtaService(database.prisma, firmwareStorage);
+const otaService = createOtaService(database.prisma, firmwareStorage, { database });
 const deviceLimiter = createRateLimiter({ windowMs: 60_000, max: 240 });
 await ensureBootstrapTenant(database);
 const publicCheckoutLimiter = createRateLimiter({
