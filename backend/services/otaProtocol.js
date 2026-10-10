@@ -2,8 +2,16 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 
 export const HARDWARE = Object.freeze({
-  CROWPANEL_7_V3: { otaSlotBytes: 1792 * 1024 },
-  ESP32_DEVKIT_CHECKOUT_V1: { otaSlotBytes: 1792 * 1024 },
+  CROWPANEL_7_V3: {
+    otaSlotBytes: 1792 * 1024,
+    espImageChipId: 9,
+    espChipName: "ESP32-S3",
+  },
+  ESP32_DEVKIT_CHECKOUT_V1: {
+    otaSlotBytes: 1792 * 1024,
+    espImageChipId: 0,
+    espChipName: "ESP32",
+  },
 });
 export const COMMANDS = Object.freeze([
   "OPEN_TRAP", "CLOSE_TRAP", "CYCLE_TRAP", "SET_SERVO_CONFIG",

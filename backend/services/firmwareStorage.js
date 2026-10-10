@@ -15,10 +15,12 @@ export function createFirmwareStorage(
   }
   return {
     async save(request, model) {
-      const limit = hardwareSpec(model).otaSlotBytes;
+      const spec = hardwareSpec(model),
+        limit = spec.otaSlotBytes,
+        limitMessage = `Firmware exceeds the ${limit / 1024} KiB OTA slot for ${model}.`;
       const length = request.headers["content-length"];
       if (length && (!/^\d+$/.test(length) || Number(length) > limit))
-        throw otaError("Firmware exceeds the 1792 KiB OTA slot.", 413);
+        throw otaError(limitMessage, 413);
       await mkdir(root, { recursive: true, mode: 0o700 });
       const key = `${randomUUID()}.bin`,
         temp = `${filePath(key)}.upload`;
@@ -30,7 +32,7 @@ export function createFirmwareStorage(
         for await (const chunk of request) {
           size += chunk.length;
           if (size > limit)
-            throw otaError("Firmware exceeds the 1792 KiB OTA slot.", 413);
+            throw otaError(limitMessage, 413);
           if (prefix.length < 36)
             prefix = Buffer.concat([
               prefix,
@@ -44,16 +46,16 @@ export function createFirmwareStorage(
             offset += bytesWritten;
           }
         }
-        // ESP32-S3 image header + first segment's esp_app_desc_t magic.
+        // ESP application image header + first segment's esp_app_desc_t magic.
         // Bootloaders/merged USB images do not have this application descriptor here.
         if (
           size < 288 ||
           prefix[0] !== 0xe9 ||
-          prefix.readUInt16LE(12) !== 9 ||
+          prefix.readUInt16LE(12) !== spec.espImageChipId ||
           prefix.readUInt32LE(32) !== 0xabcd5432
         ) {
           throw otaError(
-            "Not an ESP32-S3 application image; upload firmware.bin only.",
+            `Not a valid ${spec.espChipName} application image for ${model}; upload firmware.bin only.`,
           );
         }
         if (length && Number(length) !== size)
