@@ -440,6 +440,8 @@ model Device {
   commands                 DeviceCommand[]
   events                   DeviceEvent[]
   rfidKeys                 DeviceRfidKey[]
+  rfidReadings             DeviceRfidReading[]
+  tenantAssignments        DeviceTenantAssignment[]
 
   @@index([tenantId])
   @@index([lastSeenAt])
@@ -465,6 +467,49 @@ model DeviceRfidKey {
   @@index([deviceId, lastSeenAt])
   @@index([deviceId, authorized, active])
   @@map("device_rfid_keys")
+}
+
+model DeviceRfidReading {
+  id                    String   @id @default(uuid()) @db.Uuid
+  deviceId              String   @map("device_id") @db.Uuid
+  tenantId              String?  @map("tenant_id") @db.Uuid
+  keyId                 String?  @map("key_id") @db.Uuid
+  checkoutEventId       String?  @map("checkout_event_id") @db.Uuid
+  uid                   String
+  keyName               String   @default("") @map("key_name")
+  room                  String   @default("")
+  hotelName             String   @default("") @map("hotel_name")
+  authorized            Boolean  @default(false)
+  active                Boolean  @default(true)
+  duplicate             Boolean  @default(false)
+  eventType             String   @map("event_type")
+  result                String
+  diagnostic            String?
+  deviceUptimeMs        Int      @map("device_uptime_ms")
+  createdAt             DateTime @default(now()) @map("created_at")
+  device                Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([uid, createdAt])
+  @@index([eventType, result, createdAt])
+  @@map("device_rfid_readings")
+}
+
+model DeviceTenantAssignment {
+  id             String   @id @default(uuid()) @db.Uuid
+  deviceId       String   @map("device_id") @db.Uuid
+  fromTenantId   String?  @map("from_tenant_id") @db.Uuid
+  fromTenantName String   @default("") @map("from_tenant_name")
+  toTenantId     String?  @map("to_tenant_id") @db.Uuid
+  toTenantName   String   @default("") @map("to_tenant_name")
+  assignedBy     String?  @map("assigned_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@index([toTenantId, createdAt])
+  @@map("device_tenant_assignments")
 }
 
 model FirmwareRelease {

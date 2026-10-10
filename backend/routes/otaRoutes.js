@@ -154,13 +154,34 @@ export async function handleOtaRoute({
       const cancelUpdate = pathname.match(
         /^\/api\/admin\/devices\/([^/]+)\/updates\/([^/]+)\/cancel$/,
       );
+      const rfidReadings = pathname.match(
+        /^\/api\/admin\/devices\/([^/]+)\/rfid-readings$/,
+      );
+      const deviceHistory = pathname.match(
+        /^\/api\/admin\/devices\/([^/]+)\/history$/,
+      );
+      const tenantAssignment = pathname.match(
+        /^\/api\/admin\/devices\/([^/]+)\/tenant$/,
+      );
       const rfidKey = pathname.match(
         /^\/api\/admin\/devices\/([^/]+)\/rfid-keys(?:\/([^/]+))?$/,
       );
       const release = pathname.match(
         /^\/api\/admin\/firmware-releases\/([^/]+)(?:\/(download|publish))?$/,
       );
-      if (rfidKey && !rfidKey[2] && request.method === "POST") {
+      if (rfidReadings && request.method === "GET")
+        payload=await service.listRfidReadings(
+          rfidReadings[1],Object.fromEntries(parsedUrl.searchParams),
+        );
+      else if (deviceHistory && request.method === "GET")
+        payload=await service.listHistory(
+          deviceHistory[1],Object.fromEntries(parsedUrl.searchParams),
+        );
+      else if (tenantAssignment && request.method === "PATCH") {
+        payload=await service.assignTenant(
+          tenantAssignment[1],(await readOtaJson(request)).tenantId,userId,
+        );
+      } else if (rfidKey && !rfidKey[2] && request.method === "POST") {
         payload=await service.upsertRfidKey(rfidKey[1],await readOtaJson(request));
         status=201;
       } else if(rfidKey && rfidKey[2] && request.method==="DELETE")

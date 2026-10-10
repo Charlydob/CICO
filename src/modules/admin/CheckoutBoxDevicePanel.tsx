@@ -1,23 +1,48 @@
 import { useEffect,useMemo,useRef,useState } from "react";
-import { deleteDeviceRfidKey,saveDeviceRfidKey,sendDeviceCommand,updateDeviceConfiguration } from "../../services/backendApi";
-import type { CheckoutBoxConfiguration,DeviceRfidKey,PhysicalDevice } from "../../types/firmware";
+import { ChevronLeft,ChevronRight,Plus,X } from "lucide-react";
+import { deleteDeviceRfidKey,getDeviceRfidReadings,saveDeviceRfidKey,sendDeviceCommand,updateDeviceConfiguration } from "../../services/backendApi";
+import type { CheckoutBoxConfiguration,DeviceRfidKey,DeviceRfidReading,PhysicalDevice } from "../../types/firmware";
 
-type Props={device:PhysicalDevice;busy:boolean;run:(action:()=>Promise<unknown>,success:string)=>Promise<void>};
+type Props={device:PhysicalDevice;busy:boolean;run:(action:()=>Promise<unknown>,success:string)=>Promise<boolean>};
 const defaults:CheckoutBoxConfiguration={
   closedAngle:10,openAngle:90,holdMs:1500,duplicateRfidMs:1500,activationCooldownMs:1500,
   motionStepMs:0,heartbeatSec:25,pollSec:20,diagnosticEnabled:true,diagnosticTimeoutSec:300,
   startupBehavior:"CLOSED",disconnectBehavior:"KEEP_LOCAL",
 };
-const date=(value:string|null|undefined)=>value?new Date(value).toLocaleString():"Nunca";
+const date=(value:string|null|undefined)=>value?new Date(value).toLocaleString("es-ES"):"Nunca";
+const shortDate=(value:string|null|undefined)=>value?new Date(value).toLocaleString("es-ES",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):"Nunca";
+const cleanRoom=(value:string)=>value.replace(/^habitaci[oó]n\s+/i,"").trim();
+const roomTitle=(value:string)=>{
+  const room=cleanRoom(value);
+  if(!room) return "";
+  return /^habitaci[oó]n\s+/i.test(value)||/\d/.test(room)?`Habitación ${room}`:room;
+};
+const keyTitle=(key:{room:string;keyName?:string;name?:string})=>roomTitle(key.room)||(key.keyName||key.name||"Llave sin identificar");
+const blankKey={uid:"",name:"",room:"",authorized:true,active:true};
+
+function SyncStatus({device}: {device:PhysicalDevice}) {
+  const pending=Boolean(device.desiredConfig?.version&&(
+    device.desiredConfig.version!==device.configVersion||
+    device.desiredConfig.checksum!==device.configChecksum||
+    (device.desiredConfig.allowedRfids?.length||0)!==(device.authorizedRfidCount??0)
+  ));
+  const state=device.configRejectedReason?"error":pending?"pending":"synced";
+  return <div className={`config-sync ${state}`}><strong>{state==="error"?"Error al aplicar configuración":state==="pending"?"Configuración pendiente":"Configuración sincronizada"}</strong><span>{state==="error"?device.configRejectedReason:state==="pending"?"Guardada en CICO; esperando confirmación del ESP32.":`Confirmada ${date(device.configAppliedAt)}`}</span></div>;
+}
 
 export function CheckoutBoxDevicePanel({device,busy,run}:Props) {
   const [tab,setTab]=useState<"rfid"|"servo"|"console"|"config">("rfid");
   const [config,setConfig]=useState<CheckoutBoxConfiguration>(defaults);
-  const [keyDraft,setKeyDraft]=useState({uid:"",name:"",room:"",authorized:true,active:true});
+  const [keyDraft,setKeyDraft]=useState(blankKey);
+  const [keyFormOpen,setKeyFormOpen]=useState(false);
   const [query,setQuery]=useState("");
   const [eventType,setEventType]=useState("ALL");
   const [errorsOnly,setErrorsOnly]=useState(false);
   const [visibleSince,setVisibleSince]=useState(0);
+  const [readingFilters,setReadingFilters]=useState({room:"",result:""});
+  const [readingPage,setReadingPage]=useState(1);
+  const [readingPages,setReadingPages]=useState(Math.max(1,Math.ceil((device.historyTotals?.rfidReadings||0)/25)));
+  const [readings,setReadings]=useState<DeviceRfidReading[]>(device.rfidReadings||[]);
   const openedAt=useRef(Date.now()).current;
   const [diagnosticDuration,setDiagnosticDuration]=useState<10|30|60|120>(60);
   const initialized=useRef("");
@@ -27,87 +52,45 @@ export function CheckoutBoxDevicePanel({device,busy,run}:Props) {
     initialized.current=version;
     setConfig({...defaults,...device.desiredConfig,allowedRfids:undefined} as CheckoutBoxConfiguration);
   },[device.id,device.desiredConfig]);
+  useEffect(()=>{if(readingPage===1&&!readingFilters.room&&!readingFilters.result)setReadings(device.rfidReadings||[]);},[device.rfidReadings,readingFilters,readingPage]);
+  useEffect(()=>{
+    if(tab!=="rfid") return;
+    const timer=window.setTimeout(()=>void getDeviceRfidReadings(device.id,{page:readingPage,...readingFilters}).then((result)=>{setReadings(result.items);setReadingPages(Math.max(1,result.pages));}),200);
+    return ()=>window.clearTimeout(timer);
+  },[device.id,readingFilters,readingPage,tab]);
   const keys=device.rfidKeys||[];
   const recent=keys.filter((key)=>key.lastSeenAt).slice(0,10);
-  const filteredKeys=useMemo(()=>keys.filter((key)=>{
-    const haystack=`${key.uid} ${key.name} ${key.room}`.toLowerCase();
-    return haystack.includes(query.toLowerCase());
-  }),[keys,query]);
+  const filteredKeys=useMemo(()=>keys.filter((key)=>`${key.uid} ${key.name} ${key.room}`.toLowerCase().includes(query.toLowerCase())),[keys,query]);
   const allEvents=device.events||[];
   const types=[...new Set(allEvents.map((event)=>event.type))].sort();
-  const events=allEvents.filter((event)=>(eventType==="ALL"||event.type===eventType)&&
-    (!errorsOnly||/ERROR|REJECT|DENIED|FAIL|ROLLBACK/.test(`${event.type} ${event.detail||""}`)));
-  const edit=(key:DeviceRfidKey)=>setKeyDraft({uid:key.uid,name:key.name,room:key.room,authorized:key.authorized,active:key.active});
-  const saveKey=()=>run(()=>saveDeviceRfidKey(device.id,keyDraft),"Llave guardada; sincronización pendiente con el dispositivo.");
+  const events=allEvents.filter((event)=>(eventType==="ALL"||event.type===eventType)&&(!errorsOnly||/ERROR|REJECT|DENIED|FAIL|ROLLBACK/.test(`${event.type} ${event.detail||""}`)));
+  const edit=(key:DeviceRfidKey)=>{setKeyDraft({uid:key.uid,name:key.name,room:key.room,authorized:key.authorized,active:key.active});setKeyFormOpen(true);};
+  const saveKey=async()=>{const saved=await run(()=>saveDeviceRfidKey(device.id,{...keyDraft,room:cleanRoom(keyDraft.room)}),"Llave guardada en CICO; revisa el estado de sincronización.");if(saved){setKeyFormOpen(false);setKeyDraft(blankKey);}};
   const exportLogs=()=>{
     const text=events.slice().reverse().map((event)=>`[${date(event.createdAt)}] ${event.type} — ${event.detail||""}`).join("\n");
     const url=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));
-    const link=document.createElement("a"); link.href=url; link.download=`${device.deviceId}-diagnostico.txt`; link.click(); URL.revokeObjectURL(url);
+    const link=document.createElement("a");link.href=url;link.download=`${device.deviceId}-diagnostico.txt`;link.click();URL.revokeObjectURL(url);
   };
-  const pending=Boolean(device.desiredConfig?.version&&(
-    device.desiredConfig.version!==device.configVersion||
-    device.desiredConfig.checksum!==device.configChecksum||
-    (device.desiredConfig.allowedRfids?.length||0)!==(device.authorizedRfidCount??0)
-  ));
   const legacy=!device.currentFirmwareVersion||device.currentFirmwareVersion==="1.2.0";
+  const preview=(angle:number,label:string)=>run(()=>sendDeviceCommand(device.id,"TEST_SERVO_POSITION",{angle}),`${label} solicitada. Se ejecutará en el siguiente polling; no existe realimentación física.`);
   return <section className="checkoutbox-panel">
-    <div className="ota-tabs" role="tablist">
-      {([['rfid','Llaves RFID'],['servo','Trampilla y calibración'],['console','Consola / Diagnóstico'],['config','Configuración']] as const).map(([id,label])=><button key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}>{label}</button>)}
-    </div>
-    {legacy&&<p className="ota-notice">Compatibilidad: el firmware instalado conserva apertura, cierre y diagnóstico básicos. Los ajustes V2 y la confirmación por huella estarán disponibles después de la OTA autorizada.</p>}
-    {tab==="rfid"&&<>
-      <h3>Últimos RFID detectados</h3>
-      {!recent.length&&<p>Aún no hay lecturas recibidas.</p>}
-      <div className="rfid-card-grid">{recent.map((key)=><article className="rfid-card" key={key.id}>
-        <strong>{key.uid}</strong><span>{date(key.lastSeenAt)}</span><span>{key.authorized&&key.active?"Autorizada":"No autorizada"}</span>
-        {(key.name||key.room)&&<span>{key.name||"Sin nombre"}{key.room?` · Habitación ${key.room}`:""}</span>}
-        <button onClick={()=>edit(key)}>Autorizar o editar</button>
-      </article>)}</div>
-      <form className="panel settings-form ota-form" onSubmit={(event)=>{event.preventDefault();void saveKey();}}>
-        <h3>Autorizar o editar llave</h3>
-        <label>UID<input required pattern="(?:[A-Fa-f0-9]{8}|[A-Fa-f0-9]{10})" value={keyDraft.uid} onChange={(e)=>setKeyDraft({...keyDraft,uid:e.target.value.toUpperCase()})}/></label>
-        <label>Nombre<input maxLength={120} value={keyDraft.name} onChange={(e)=>setKeyDraft({...keyDraft,name:e.target.value})}/></label>
-        <label>Habitación<input maxLength={32} value={keyDraft.room} onChange={(e)=>setKeyDraft({...keyDraft,room:e.target.value})}/></label>
-        <label><input type="checkbox" checked={keyDraft.authorized} onChange={(e)=>setKeyDraft({...keyDraft,authorized:e.target.checked})}/> Autorizada</label>
-        <label><input type="checkbox" checked={keyDraft.active} onChange={(e)=>setKeyDraft({...keyDraft,active:e.target.checked})}/> Activa</label>
-        <div className="ota-tabs"><button className="primary-button" disabled={busy}>Guardar</button><button type="button" onClick={()=>setKeyDraft({uid:"",name:"",room:"",authorized:true,active:true})}>Nueva</button></div>
-      </form>
-      <h3>Llaves del dispositivo ({keys.filter((key)=>key.authorized&&key.active).length}/128 autorizadas)</h3>
-      <input className="checkoutbox-search" placeholder="Buscar por UID, nombre o habitación" value={query} onChange={(e)=>setQuery(e.target.value)}/>
-      <div className="panel ota-table-scroll"><table className="ota-table"><thead><tr><th>Habitación</th><th>Nombre</th><th>UID</th><th>Última detección</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
-        {filteredKeys.map((key)=><tr key={key.id}><td>{key.room||"—"}</td><td>{key.name||"—"}</td><td><code>{key.uid}</code></td><td>{date(key.lastSeenAt)}</td><td>{key.authorized&&key.active?"Autorizada":key.active?"Desautorizada":"Desactivada"}</td><td><button onClick={()=>edit(key)}>Editar</button><button onClick={()=>void run(()=>saveDeviceRfidKey(device.id,{...key,authorized:false}),"Llave desautorizada.")}>Desautorizar</button><button onClick={()=>window.confirm(`¿Eliminar ${key.uid}?`)&&void run(()=>deleteDeviceRfidKey(device.id,key.id),"Llave eliminada.")}>Eliminar</button></td></tr>)}
-      </tbody></table></div>
-    </>}
-    {tab==="servo"&&<>
-      <h3>Control de trampilla</h3><p>Estado lógico: <strong>{device.trapState||"Desconocido"}</strong>. El SG90 no confirma posición física.</p>
-      <div className="ota-tabs"><button disabled={busy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"OPEN_TRAP"),"Orden ABRIR encolada.")}>ABRIR</button><button disabled={busy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"CLOSE_TRAP"),"Orden CERRAR encolada.")}>CERRAR</button><button disabled={busy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"CYCLE_TRAP"),"Ciclo completo encolado.")}>PROBAR CICLO</button></div>
-      <div className="calibration-grid">
-        <section className="panel settings-form"><h3>Posición cerrada</h3><label>Ángulo<input type="range" min="10" max="170" value={config.closedAngle} onChange={(e)=>setConfig({...config,closedAngle:Number(e.target.value)})}/><strong>{config.closedAngle}°</strong></label><button disabled={busy||legacy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"TEST_SERVO_POSITION",{angle:config.closedAngle}),"Posición cerrada ordenada; sin realimentación física.")}>PROBAR POSICIÓN</button></section>
-        <section className="panel settings-form"><h3>Posición abierta</h3><label>Ángulo<input type="range" min="10" max="170" value={config.openAngle} onChange={(e)=>setConfig({...config,openAngle:Number(e.target.value)})}/><strong>{config.openAngle}°</strong></label><button disabled={busy||legacy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"TEST_SERVO_POSITION",{angle:config.openAngle}),"Posición abierta ordenada; sin realimentación física.")}>PROBAR POSICIÓN</button></section>
-      </div>
-      <button className="primary-button" disabled={busy||config.closedAngle===config.openAngle} onClick={()=>void run(()=>updateDeviceConfiguration(device.id,config),"Calibración guardada; esperando confirmación del ESP32.")}>GUARDAR CALIBRACIÓN</button>
-      <h3>Test SG90</h3><label>Duración <select value={diagnosticDuration} onChange={(e)=>setDiagnosticDuration(Number(e.target.value) as 10|30|60|120)}>{[10,30,60,120].map((v)=><option key={v}>{v}</option>)}</select></label>
-      <div className="ota-tabs"><button disabled={busy||device.servoDiagnosticState==="RUNNING"} onClick={()=>void run(()=>sendDeviceCommand(device.id,"SERVO_DIAG_START",{durationSec:diagnosticDuration}),"Test encolado.")}>INICIAR TEST</button><button disabled={busy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"SERVO_DIAG_STOP"),"Parada encolada.")}>DETENER TEST</button></div>
-    </>}
-    {tab==="console"&&<>
-      <div className="console-toolbar"><strong className={device.status==="ONLINE"?"status-online":"status-offline"}>{device.status==="ONLINE"?"● En directo":"○ Offline · historial disponible"}</strong><select value={eventType} onChange={(e)=>setEventType(e.target.value)}><option value="ALL">Todos los eventos</option>{types.map((type)=><option key={type}>{type}</option>)}</select><label><input type="checkbox" checked={errorsOnly} onChange={(e)=>setErrorsOnly(e.target.checked)}/> Solo errores</label><button onClick={()=>void navigator.clipboard.writeText(events.slice().reverse().map((e)=>`[${date(e.createdAt)}] ${e.type} — ${e.detail||""}`).join("\n"))}>Copiar</button><button onClick={exportLogs}>Exportar</button><button onClick={()=>setVisibleSince(Date.now())}>Limpiar visualización</button></div>
-      <div className="device-console" aria-live="polite">{events.filter((event)=>new Date(event.createdAt).getTime()>=visibleSince).slice().reverse().map((event)=><div key={event.id} className={/ERROR|REJECT|DENIED|FAIL/.test(event.type)?"console-error":""}><span>[{new Date(event.createdAt).toLocaleTimeString()}]</span> <strong>{event.type}</strong> — {event.detail||"—"} <em>{new Date(event.createdAt).getTime()>=openedAt?"DIRECTO":"HISTÓRICO"}</em></div>)}</div>
-      <p>Los eventos usan la hora de recepción autenticada de CICO. La consola reproduce telemetría remota; no es acceso al puerto serie.</p>
-    </>}
-    {tab==="config"&&<form className="panel settings-form ota-form" onSubmit={(event)=>{event.preventDefault();void run(()=>updateDeviceConfiguration(device.id,config),"Configuración guardada; esperando aplicación.");}}>
-      <h3>Configuración remota</h3><p>Estado: <strong>{device.configRejectedReason?`Rechazada: ${device.configRejectedReason}`:pending?"Pendiente de aplicación":"Aplicada y confirmada"}</strong></p>
-      <label>Permanencia abierta (ms)<input type="number" min="100" max="30000" value={config.holdMs} onChange={(e)=>setConfig({...config,holdMs:Number(e.target.value)})}/></label>
-      <label>Antirrepetición RFID (ms)<input type="number" min="250" max="10000" value={config.duplicateRfidMs} onChange={(e)=>setConfig({...config,duplicateRfidMs:Number(e.target.value)})}/></label>
-      <label>Protección entre activaciones (ms)<input type="number" min="0" max="30000" value={config.activationCooldownMs} onChange={(e)=>setConfig({...config,activationCooldownMs:Number(e.target.value)})}/></label>
-      <label>Progresividad (ms por grado; 0 inmediata)<input type="number" min="0" max="100" value={config.motionStepMs} onChange={(e)=>setConfig({...config,motionStepMs:Number(e.target.value)})}/></label>
-      <label>Heartbeat (s)<input type="number" min="10" max="120" value={config.heartbeatSec} onChange={(e)=>setConfig({...config,heartbeatSec:Number(e.target.value)})}/></label>
-      <label>Consulta CICO (s)<input type="number" min="5" max="120" value={config.pollSec} onChange={(e)=>setConfig({...config,pollSec:Number(e.target.value)})}/></label>
-      <label><input type="checkbox" checked={config.diagnosticEnabled} onChange={(e)=>setConfig({...config,diagnosticEnabled:e.target.checked})}/> Diagnóstico detallado habilitado</label>
-      <label>Apagado automático del diagnóstico (s)<input type="number" min="30" max="900" value={config.diagnosticTimeoutSec} onChange={(e)=>setConfig({...config,diagnosticTimeoutSec:Number(e.target.value)})}/></label>
-      <label>Al arrancar<select value={config.startupBehavior} onChange={(e)=>setConfig({...config,startupBehavior:e.target.value as CheckoutBoxConfiguration['startupBehavior']})}><option value="CLOSED">Ordenar posición cerrada</option><option value="KEEP_LAST">Conservar última posición lógica</option></select></label>
-      <label>Sin conexión<select value={config.disconnectBehavior} onChange={(e)=>setConfig({...config,disconnectBehavior:e.target.value as CheckoutBoxConfiguration['disconnectBehavior']})}><option value="KEEP_LOCAL">Mantener operación local</option><option value="CLOSE">Ordenar cierre y mantener operación local</option></select></label>
-      <button className="primary-button" disabled={busy||legacy}>GUARDAR CONFIGURACIÓN</button>
-      <dl className="ota-details"><div><dt>Versión deseada</dt><dd>{device.desiredConfig?.version||"—"}</dd></div><div><dt>Versión aplicada</dt><dd>{device.configVersion||"—"}</dd></div><div><dt>Huella deseada</dt><dd>{device.desiredConfig?.checksum||"—"}</dd></div><div><dt>Huella aplicada</dt><dd>{device.configChecksum||"No disponible en firmware antiguo"}</dd></div><div><dt>Confirmada</dt><dd>{date(device.configAppliedAt)}</dd></div></dl>
-    </form>}
+    <div className="device-subtabs" role="tablist">{([['rfid','Llaves RFID'],['servo','Trampilla'],['console','Consola'],['config','Configuración']] as const).map(([id,label])=><button type="button" key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}>{label}</button>)}</div>
+    {legacy&&<p className="ota-notice">Compatibilidad limitada del firmware antiguo: los ajustes V2 y su confirmación por huella no están disponibles.</p>}
+
+    {tab==="rfid"&&<div className="device-stack">
+      <SyncStatus device={device}/>
+      <section className="compact-device-section"><div className="compact-heading"><div><h3>UID distintos detectados recientemente</h3><p>Una entrada por llave; no es el historial cronológico.</p></div><button type="button" onClick={()=>{setKeyDraft(blankKey);setKeyFormOpen(true);}}><Plus size={15}/> Añadir llave</button></div>
+        <div className="rfid-compact-list">{recent.map((key)=><details className="rfid-entry" key={key.id}><summary><span><strong>{keyTitle(key)}</strong><small>{shortDate(key.lastSeenAt)}</small></span><i className={key.authorized&&key.active?"authorized":"rejected"}>{key.authorized&&key.active?"Autorizada":"No autorizada"}</i></summary><dl><div><dt>UID</dt><dd><code>{key.uid}</code></dd></div><div><dt>Habitación</dt><dd>{cleanRoom(key.room)||"—"}</dd></div><div><dt>Nombre</dt><dd>{key.name||"—"}</dd></div><div><dt>Última lectura</dt><dd>{date(key.lastSeenAt)}</dd></div></dl><button type="button" onClick={()=>edit(key)}>Autorizar o editar</button></details>)}{!recent.length&&<p className="empty-state">Aún no hay UID detectados.</p>}</div>
+      </section>
+      {keyFormOpen&&<form className="panel compact-form rfid-editor" onSubmit={(event)=>{event.preventDefault();void saveKey();}}><div className="compact-heading"><h3>Autorizar o editar llave</h3><button type="button" className="icon-button small" aria-label="Cerrar" onClick={()=>setKeyFormOpen(false)}><X size={15}/></button></div><div className="compact-form-grid"><label><span>UID</span><input required pattern="(?:[A-Fa-f0-9]{8}|[A-Fa-f0-9]{10})" value={keyDraft.uid} onChange={(event)=>setKeyDraft({...keyDraft,uid:event.target.value.toUpperCase()})}/></label><label><span>Nombre</span><input maxLength={120} value={keyDraft.name} onChange={(event)=>setKeyDraft({...keyDraft,name:event.target.value})}/></label><label><span>Habitación</span><input maxLength={32} value={keyDraft.room} onChange={(event)=>setKeyDraft({...keyDraft,room:event.target.value})}/></label></div><div className="inline-checks"><label><input type="checkbox" checked={keyDraft.authorized} onChange={(event)=>setKeyDraft({...keyDraft,authorized:event.target.checked})}/> Autorizada</label><label><input type="checkbox" checked={keyDraft.active} onChange={(event)=>setKeyDraft({...keyDraft,active:event.target.checked})}/> Activa</label></div><button className="primary-button" disabled={busy}>Guardar en CICO</button></form>}
+      <section className="compact-device-section"><div className="compact-heading"><div><h3>Llaves del dispositivo</h3><p>{keys.filter((key)=>key.authorized&&key.active).length}/128 autorizadas</p></div></div><input className="checkoutbox-search" placeholder="Buscar por habitación, nombre o UID" value={query} onChange={(event)=>setQuery(event.target.value)}/><div className="rfid-key-list">{filteredKeys.map((key)=><article key={key.id}><div><strong>{keyTitle(key)}</strong><small>{key.name&&cleanRoom(key.room)?key.name:key.uid}</small></div><span>{key.authorized&&key.active?"Autorizada":key.active?"Desautorizada":"Inactiva"}</span><div className="compact-actions"><button type="button" onClick={()=>edit(key)}>Editar</button><button type="button" onClick={()=>void run(()=>saveDeviceRfidKey(device.id,{...key,authorized:false}),"Llave desautorizada; sincronización pendiente.")}>Desautorizar</button><button type="button" className="danger-button" onClick={()=>window.confirm(`¿Eliminar ${key.uid}?`)&&void run(()=>deleteDeviceRfidKey(device.id,key.id),"Llave eliminada; sincronización pendiente.")}>Eliminar</button></div></article>)}{!filteredKeys.length&&<p className="empty-state">Sin resultados.</p>}</div></section>
+      <section className="compact-device-section"><div className="compact-heading"><div><h3>Historial cronológico de lecturas</h3><p>“Devolución registrada” significa lectura autorizada vinculada a una habitación; no confirma caída física.</p></div></div><div className="history-filters"><input placeholder="Filtrar habitación" value={readingFilters.room} onChange={(event)=>{setReadingPage(1);setReadingFilters({...readingFilters,room:event.target.value});}}/><select value={readingFilters.result} onChange={(event)=>{setReadingPage(1);setReadingFilters({...readingFilters,result:event.target.value});}}><option value="">Todos los resultados</option><option value="AUTHORIZED_RETURN_RECORDED">Devolución registrada</option><option value="NOT_AUTHORIZED">No autorizada</option><option value="AUTHORIZED_ROOM_NOT_LINKED">Sin habitación vinculada</option><option value="DUPLICATE_SUPPRESSED">Repetición omitida</option></select></div><div className="rfid-compact-list">{readings.map((reading)=><details className="rfid-entry" key={reading.id}><summary><span><strong>{keyTitle(reading)}</strong><small>{shortDate(reading.createdAt)}</small></span><i className={reading.eventType==="RETURN_RECORDED"?"authorized":"neutral"}>{reading.eventType==="RETURN_RECORDED"?"Devolución registrada":"Lectura RFID"}</i></summary><dl><div><dt>UID</dt><dd><code>{reading.uid}</code></dd></div><div><dt>Hotel</dt><dd>{reading.hotelName||"Sin asignar"}</dd></div><div><dt>Dispositivo</dt><dd>{device.name}</dd></div><div><dt>Autorización</dt><dd>{reading.authorized&&reading.active?"Autorizada":"Rechazada"}</dd></div><div><dt>Resultado</dt><dd>{reading.result}</dd></div><div><dt>Diagnóstico</dt><dd>{reading.diagnostic||"—"}</dd></div></dl></details>)}{!readings.length&&<p className="empty-state">No hay lecturas para estos filtros.</p>}</div>{readingPages>1&&<div className="history-pager"><button type="button" disabled={readingPage<=1} onClick={()=>setReadingPage((page)=>page-1)}><ChevronLeft size={15}/> Anterior</button><span>{readingPage} / {readingPages}</span><button type="button" disabled={readingPage>=readingPages} onClick={()=>setReadingPage((page)=>page+1)}>Siguiente <ChevronRight size={15}/></button></div>}</section>
+    </div>}
+
+    {tab==="servo"&&<div className="device-stack"><section className="compact-device-section"><div className="compact-heading"><div><h3>Control de trampilla</h3><p>Estado lógico: <strong>{device.trapState||"Desconocido"}</strong>. El SG90 no informa de su posición física.</p></div></div><div className="compact-actions"><button disabled={busy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"OPEN_TRAP"),"Orden ABRIR encolada.")}>Abrir</button><button disabled={busy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"CLOSE_TRAP"),"Orden CERRAR encolada.")}>Cerrar</button><button disabled={busy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"CYCLE_TRAP"),"Ciclo encolado.")}>Probar ciclo</button></div></section><div className="calibration-grid">{([['closedAngle','Posición cerrada'],['openAngle','Posición abierta']] as const).map(([field,label])=><section className="panel vertical-calibration" key={field}><h3>{label}</h3><strong>{config[field]}°</strong><input aria-label={label} className="vertical-slider" type="range" min="10" max="170" value={config[field]} onChange={(event)=>setConfig({...config,[field]:Number(event.target.value)})}/><span>Vista previa pendiente hasta ACK</span><button type="button" disabled={busy||legacy} onClick={()=>void preview(config[field],label)}>Previsualizar</button></section>)}</div><p className="servo-preview-note">La vista previa se envía solo al pulsar el botón. CICO reemplaza una previsualización pendiente por la última solicitada; el polling impide control continuo en tiempo real.</p><button className="primary-button" disabled={busy||legacy||config.closedAngle===config.openAngle} onClick={()=>void run(()=>updateDeviceConfiguration(device.id,config),"Calibración guardada; esperando confirmación del ESP32.")}>Guardar ambas posiciones</button><section className="compact-device-section"><h3>Diagnóstico SG90</h3><div className="compact-actions"><label>Duración <select value={diagnosticDuration} onChange={(event)=>setDiagnosticDuration(Number(event.target.value) as 10|30|60|120)}>{[10,30,60,120].map((value)=><option key={value}>{value} s</option>)}</select></label><button disabled={busy||device.servoDiagnosticState==="RUNNING"} onClick={()=>void run(()=>sendDeviceCommand(device.id,"SERVO_DIAG_START",{durationSec:diagnosticDuration}),"Diagnóstico encolado.")}>Iniciar</button><button disabled={busy} onClick={()=>void run(()=>sendDeviceCommand(device.id,"SERVO_DIAG_STOP"),"Parada encolada.")}>Detener</button></div></section></div>}
+
+    {tab==="console"&&<div className="device-stack"><div className="console-toolbar"><strong className={device.status==="ONLINE"?"status-online":"status-offline"}>{device.status==="ONLINE"?"● En directo":"○ Offline · historial disponible"}</strong><select value={eventType} onChange={(event)=>setEventType(event.target.value)}><option value="ALL">Todos los eventos</option>{types.map((type)=><option key={type}>{type}</option>)}</select><label><input type="checkbox" checked={errorsOnly} onChange={(event)=>setErrorsOnly(event.target.checked)}/> Solo errores</label><button type="button" onClick={()=>void navigator.clipboard.writeText(events.slice().reverse().map((event)=>`[${date(event.createdAt)}] ${event.type} — ${event.detail||""}`).join("\n"))}>Copiar</button><button type="button" onClick={exportLogs}>Exportar</button><button type="button" onClick={()=>setVisibleSince(Date.now())}>Limpiar vista</button></div><div className="device-console" aria-live="polite">{events.filter((event)=>new Date(event.createdAt).getTime()>=visibleSince).slice().reverse().map((event)=><div key={event.id} className={/ERROR|REJECT|DENIED|FAIL/.test(event.type)?"console-error":""}><span>[{new Date(event.createdAt).toLocaleTimeString()}]</span> <strong>{event.type}</strong> — {event.detail||"—"} <em>{new Date(event.createdAt).getTime()>=openedAt?"DIRECTO":"HISTÓRICO"}</em></div>)}</div><p>Hora de recepción autenticada de CICO; esta consola no es acceso al puerto serie.</p></div>}
+
+    {tab==="config"&&<form className="device-stack" onSubmit={(event)=>{event.preventDefault();void run(()=>updateDeviceConfiguration(device.id,config),"Configuración guardada en CICO; esperando aplicación.");}}><SyncStatus device={device}/><fieldset className="panel config-block"><legend>Movimiento del servo</legend><div className="compact-form-grid"><label><span>Permanencia abierta</span><input type="number" min="100" max="30000" value={config.holdMs} onChange={(event)=>setConfig({...config,holdMs:Number(event.target.value)})}/><small>100–30.000 ms</small></label><label><span>Progresividad</span><input type="number" min="0" max="100" value={config.motionStepMs} onChange={(event)=>setConfig({...config,motionStepMs:Number(event.target.value)})}/><small>0–100 ms/grado</small></label></div></fieldset><fieldset className="panel config-block"><legend>RFID y tiempos</legend><div className="compact-form-grid"><label><span>Antirrepetición RFID</span><input type="number" min="250" max="10000" value={config.duplicateRfidMs} onChange={(event)=>setConfig({...config,duplicateRfidMs:Number(event.target.value)})}/><small>250–10.000 ms</small></label><label><span>Protección entre activaciones</span><input type="number" min="0" max="30000" value={config.activationCooldownMs} onChange={(event)=>setConfig({...config,activationCooldownMs:Number(event.target.value)})}/><small>0–30.000 ms</small></label></div></fieldset><fieldset className="panel config-block"><legend>Red y sincronización</legend><div className="compact-form-grid"><label><span>Heartbeat</span><input type="number" min="10" max="120" value={config.heartbeatSec} onChange={(event)=>setConfig({...config,heartbeatSec:Number(event.target.value)})}/><small>10–120 s</small></label><label><span>Consulta CICO</span><input type="number" min="5" max="120" value={config.pollSec} onChange={(event)=>setConfig({...config,pollSec:Number(event.target.value)})}/><small>5–120 s</small></label></div></fieldset><fieldset className="panel config-block"><legend>Diagnósticos y comportamiento</legend><div className="compact-form-grid"><label><span>Apagado del diagnóstico</span><input type="number" min="30" max="900" value={config.diagnosticTimeoutSec} onChange={(event)=>setConfig({...config,diagnosticTimeoutSec:Number(event.target.value)})}/><small>30–900 s</small></label><label><span>Al arrancar</span><select value={config.startupBehavior} onChange={(event)=>setConfig({...config,startupBehavior:event.target.value as CheckoutBoxConfiguration['startupBehavior']})}><option value="CLOSED">Ordenar cierre</option><option value="KEEP_LAST">Conservar estado lógico</option></select></label><label><span>Sin conexión</span><select value={config.disconnectBehavior} onChange={(event)=>setConfig({...config,disconnectBehavior:event.target.value as CheckoutBoxConfiguration['disconnectBehavior']})}><option value="KEEP_LOCAL">Operación local</option><option value="CLOSE">Cerrar y operar localmente</option></select></label></div><label className="small-check"><input type="checkbox" checked={config.diagnosticEnabled} onChange={(event)=>setConfig({...config,diagnosticEnabled:event.target.checked})}/> Diagnóstico detallado</label></fieldset><button className="primary-button" disabled={busy||legacy}>Guardar configuración</button><div className="sync-pairs"><div><span>Versión deseada</span><strong>{device.desiredConfig?.version||"—"}</strong></div><div><span>Versión aplicada</span><strong>{device.configVersion||"—"}</strong></div></div><details className="panel device-technical"><summary>Huellas técnicas</summary><dl className="device-technical-grid"><div><dt>Huella deseada</dt><dd><code>{device.desiredConfig?.checksum||"—"}</code></dd></div><div><dt>Huella aplicada</dt><dd><code>{device.configChecksum||"No disponible"}</code></dd></div></dl></details></form>}
   </section>;
 }

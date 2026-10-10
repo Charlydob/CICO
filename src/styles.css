@@ -2317,6 +2317,7 @@ button:disabled {
   }
 
   .platform-main {
+    overflow-x: clip;
     padding: 12px;
   }
 
@@ -3033,3 +3034,138 @@ button:disabled {
 .device-console { min-height:260px; max-height:480px; overflow:auto; background:#111827; color:#dbeafe; padding:14px; border-radius:10px; font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; }
 .device-console div { border-bottom:1px solid #263247; padding:3px 0; }.device-console em { color:#7dd3fc; float:right; }.device-console .console-error { color:#fca5a5; }
 @media (max-width:640px) { .ota-modal { padding:14px; max-height:94vh; }.calibration-grid { grid-template-columns:1fr; }.device-console em { float:none; display:block; }.ota-table { min-width:680px; } }
+
+/* Compact, mobile-first device administration. */
+.device-detail-page { display:grid; gap:12px; min-width:0; }
+.device-detail-header { align-items:center; display:grid; gap:10px; grid-template-columns:auto minmax(0,1fr) auto; }
+.device-detail-header h2,.device-detail-header p { margin:0; }
+.device-detail-header p { color:#657184; font-size:.78rem; overflow-wrap:anywhere; }
+.device-back { align-items:center; display:inline-flex; gap:6px; }
+.device-status { border-radius:999px; font-size:.74rem; font-weight:800; padding:6px 9px; }
+.device-status.online { background:#e4f7ed; color:#13764a; }
+.device-status.offline { background:#edf1f5; color:#667287; }
+.device-section-tabs,.device-subtabs { display:flex; gap:4px; overflow-x:auto; padding:3px; scrollbar-width:none; }
+.device-section-tabs { background:#e9eef4; border:1px solid #d6dee8; border-radius:10px; position:sticky; top:0; z-index:4; }
+.device-section-tabs button,.device-subtabs button { background:transparent; border:1px solid transparent; border-radius:7px; flex:0 0 auto; min-height:36px; padding:6px 10px; }
+.device-section-tabs button.active,.device-subtabs button.active { background:#fff; border-color:#cfd8e3; color:#255da8; font-weight:800; }
+.device-summary-grid { display:grid; gap:8px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+.device-summary-item { background:#fff; border:1px solid #dde3ea; border-radius:8px; display:grid; gap:3px; min-width:0; padding:10px; }
+.device-summary-item span,.compact-device-section p,.vertical-calibration span { color:#657184; font-size:.76rem; }
+.device-summary-item strong { font-size:.9rem; overflow-wrap:anywhere; }
+.compact-device-section { background:#fff; border:1px solid #dde3ea; border-radius:8px; padding:12px; }
+.compact-device-section h3,.compact-device-section p,.compact-heading h3,.compact-heading p { margin:0; }
+.compact-heading { align-items:center; display:flex; gap:10px; justify-content:space-between; margin-bottom:10px; }
+.compact-heading button,.compact-actions button { align-items:center; display:inline-flex; gap:5px; }
+.device-hotel-picker { display:grid; gap:5px; padding-top:10px; }
+.device-hotel-picker span,.compact-form label span,.config-block label span { color:#526074; font-size:.74rem; font-weight:800; }
+.device-hotel-picker select,.compact-form input,.config-block input,.config-block select,.history-filters input,.history-filters select { border:1px solid #cfd8e3; border-radius:7px; min-height:38px; padding:7px 9px; width:100%; }
+.device-technical { padding:0; }
+.device-technical summary,.advanced-admin summary { cursor:pointer; font-weight:800; list-style-position:inside; padding:11px 12px; }
+.device-technical-grid { display:grid; gap:8px; grid-template-columns:repeat(2,minmax(0,1fr)); margin:0; padding:0 12px 12px; }
+.device-technical-grid div { min-width:0; }
+.device-technical-grid dt { color:#657184; font-size:.7rem; }
+.device-technical-grid dd { font-size:.82rem; margin:2px 0; overflow-wrap:anywhere; }
+.device-stack { display:grid; gap:10px; }
+.checkoutbox-panel { margin:0; }
+.device-subtabs { border-bottom:1px solid #dde3ea; margin-bottom:10px; }
+.config-sync { border:1px solid; border-radius:8px; display:grid; gap:2px; padding:9px 11px; }
+.config-sync strong { font-size:.84rem; }
+.config-sync span { font-size:.73rem; }
+.config-sync.synced { background:#e9f7ef; border-color:#b8dec8; color:#1c5f3d; }
+.config-sync.pending { background:#fff6df; border-color:#ead08d; color:#805800; }
+.config-sync.error { background:#fff1f0; border-color:#f0b8b3; color:#9d2823; }
+.rfid-compact-list { display:grid; gap:6px; }
+.rfid-entry { border:1px solid #dce2e8; border-radius:8px; background:#f9fbfd; }
+.rfid-entry summary { align-items:center; cursor:pointer; display:flex; gap:8px; justify-content:space-between; list-style:none; padding:9px 10px; }
+.rfid-entry summary::-webkit-details-marker { display:none; }
+.rfid-entry summary span { display:grid; gap:2px; min-width:0; }
+.rfid-entry summary strong { font-size:.86rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rfid-entry summary small { color:#657184; font-size:.7rem; }
+.rfid-entry summary i { border-radius:999px; flex:0 0 auto; font-size:.65rem; font-style:normal; font-weight:800; padding:4px 7px; }
+.rfid-entry summary i.authorized { background:#e4f7ed; color:#13764a; }
+.rfid-entry summary i.rejected { background:#ffe9e8; color:#a62f2b; }
+.rfid-entry summary i.neutral { background:#edf1f5; color:#566276; }
+.rfid-entry dl { display:grid; gap:6px; grid-template-columns:repeat(2,minmax(0,1fr)); margin:0; padding:0 10px 9px; }
+.rfid-entry dt { color:#657184; font-size:.68rem; }
+.rfid-entry dd { font-size:.78rem; margin:1px 0; overflow-wrap:anywhere; }
+.rfid-entry>button { margin:0 10px 10px; }
+.compact-form { display:grid; gap:10px; padding:12px; }
+.compact-form-grid { display:grid; gap:8px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+.compact-form label,.config-block label { display:grid; gap:4px; min-width:0; }
+.inline-checks { display:flex; gap:18px; }
+.inline-checks label,.small-check { align-items:center; display:flex!important; font-size:.8rem; gap:6px; }
+.inline-checks input,.small-check input,.console-toolbar input { height:16px; margin:0; min-height:16px; width:16px; }
+.checkoutbox-search { border:1px solid #cfd8e3; border-radius:7px; margin:0 0 8px; min-height:38px; max-width:none; }
+.rfid-key-list { display:grid; gap:5px; }
+.rfid-key-list article { align-items:center; border-top:1px solid #edf1f5; display:grid; gap:7px; grid-template-columns:minmax(0,1fr) auto; padding:8px 0; }
+.rfid-key-list article>div:first-child { display:grid; min-width:0; }
+.rfid-key-list article small { color:#657184; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rfid-key-list article>span { font-size:.7rem; }
+.rfid-key-list .compact-actions { grid-column:1/-1; }
+.compact-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.compact-actions button { margin:0!important; }
+.danger-button { border-color:#e2aaa7!important; color:#a62f2b!important; }
+.history-filters { display:grid; gap:6px; grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:8px; }
+.history-pager { align-items:center; display:flex; justify-content:space-between; padding-top:10px; }
+.history-pager button { align-items:center; display:inline-flex; gap:4px; }
+.calibration-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.vertical-calibration { align-items:center; display:grid; gap:8px; justify-items:center; padding:12px 6px; text-align:center; }
+.vertical-calibration h3 { font-size:.84rem; margin:0; }
+.vertical-calibration>strong { color:#255da8; font-size:1.35rem; }
+.vertical-slider { direction:rtl; height:132px; margin:2px 0; writing-mode:vertical-lr; }
+.servo-preview-note { background:#f4f7fb; border-radius:8px; margin:0; padding:9px; }
+.config-block { display:grid; gap:10px; margin:0; padding:8px 12px 12px; }
+.config-block legend { font-size:.85rem; font-weight:800; padding:0 5px; }
+.config-block small { color:#657184; font-size:.68rem; }
+.sync-pairs { display:grid; gap:6px; grid-template-columns:repeat(2,minmax(0,1fr)); }
+.sync-pairs div { background:#f4f7fb; border-radius:7px; display:grid; gap:3px; padding:8px; }
+.sync-pairs span { color:#657184; font-size:.68rem; }
+.sync-pairs strong { font-size:.76rem; overflow-wrap:anywhere; }
+.compact-history { display:grid; gap:0; padding:0 12px 8px; }
+.compact-history p { border-top:1px solid #edf1f5; display:grid; gap:2px; margin:0; padding:8px 0; }
+.compact-history span { color:#657184; font-size:.72rem; overflow-wrap:anywhere; }
+.firmware-current { display:grid; gap:6px; }
+.firmware-current>strong { font-size:1.45rem; }
+.firmware-current code { overflow-wrap:anywhere; }
+.ota-history-list { display:grid; gap:8px; }
+.ota-history-card { padding:12px; }
+.ota-history-card header { align-items:start; display:flex; justify-content:space-between; }
+.ota-history-card header div { display:grid; gap:2px; min-width:0; }
+.ota-history-card code { font-size:.72rem; overflow-wrap:anywhere; }
+.ota-history-card dl { display:grid; gap:6px; grid-template-columns:repeat(3,minmax(0,1fr)); }
+.ota-history-card dt { color:#657184; font-size:.68rem; }
+.ota-history-card dd { font-size:.76rem; margin:2px 0; overflow-wrap:anywhere; }
+.ota-state { background:#edf1f5; border-radius:999px; font-size:.66rem; font-weight:800; padding:5px 7px; }
+.ota-state.success { background:#e4f7ed; color:#13764a; }
+.ota-state.cancelled,.ota-state.failed { background:#ffe9e8; color:#a62f2b; }
+.advanced-admin { border-color:#e8c6c4; padding:0 12px 12px; }
+.advanced-admin summary { margin:0 -12px; }
+
+@media (max-width:640px) {
+  .ota-page { padding-inline:0; }
+  .device-detail-header { grid-template-columns:auto minmax(0,1fr); }
+  .device-detail-header .device-status { grid-column:2; justify-self:start; }
+  .device-section-tabs { border-radius:0; margin-inline:-12px; padding-inline:12px; }
+  .device-section-tabs { top:calc(58px + env(safe-area-inset-top)); }
+  .device-summary-grid,.device-technical-grid,.compact-form-grid,.history-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .rfid-key-list article { grid-template-columns:minmax(0,1fr) auto; }
+  .ota-history-card dl { grid-template-columns:1fr 1fr; }
+  .console-toolbar { align-items:stretch; display:grid; grid-template-columns:1fr 1fr; }
+  .console-toolbar>* { min-width:0; }
+  .device-console { max-height:55vh; min-height:220px; }
+  .ota-table-scroll .ota-table { min-width:0; }
+  .device-list-table thead { display:none; }
+  .device-list-table,.device-list-table tbody,.device-list-table tr,.device-list-table td { display:block; width:100%; }
+  .device-list-table tbody { display:grid; gap:8px; padding:8px; }
+  .device-list-table tr { border:1px solid #dde3ea; border-radius:8px; padding:7px; }
+  .device-list-table td { align-items:start; border:0; display:grid; gap:3px; grid-template-columns:105px minmax(0,1fr); padding:5px; }
+  .device-list-table td::before { color:#657184; content:attr(data-label); font-size:.68rem; font-weight:800; text-transform:uppercase; }
+  .device-list-table td[data-label="Acciones"] { display:flex; flex-wrap:wrap; padding-left:110px; }
+}
+
+@media (max-width:380px) {
+  .device-summary-grid,.compact-form-grid,.history-filters { grid-template-columns:1fr 1fr; }
+  .device-summary-item { padding:8px; }
+  .compact-actions button { font-size:.72rem; padding:6px 7px; }
+  .rfid-entry summary { padding:8px; }
+}

@@ -9,6 +9,7 @@ import {
   processDueScheduledPushes,
   resolveVapidSubject,
   schedulePush,
+  sendRfidReturnPush,
   sendPushToSubscription,
   sendTestPushToSubscription,
   setWebPushTestHooks,
@@ -340,6 +341,43 @@ test("push preferences are isolated by user and tenant", async () => {
   assert.equal(preferences.find((item) => item.userId === "user-a" && item.tenantId === "hotel-a").roomCompleted, true);
   assert.equal(preferences.find((item) => item.userId === "user-a" && item.tenantId === "hotel-b").newCheckout, false);
   assert.equal(preferences.find((item) => item.userId === "user-b" && item.tenantId === "hotel-a").enabled, true);
+});
+
+test("RFID return push is sent only to authorized users of the matching hotel", async () => {
+  const sent=[];
+  const database=createFakeDatabase({
+    users:{
+      a:{id:"user-a",globalRole:null,active:true},
+      b:{id:"user-b",globalRole:null,active:true},
+    },
+    memberships:{
+      a:{id:"membership-a",userId:"user-a",tenantId:"hotel-a",role:"manager"},
+      b:{id:"membership-b",userId:"user-b",tenantId:"hotel-b",role:"manager"},
+    },
+    tenants:{
+      a:{id:"hotel-a",slug:"hotel-a",name:"Hotel A"},
+      b:{id:"hotel-b",slug:"hotel-b",name:"Hotel B"},
+    },
+  });
+  const reset=setWebPushTestHooks({
+    generateVapidKeys:validVapidKeys,
+    sendNotification:async(subscription,payload)=>sent.push({subscription,payload:JSON.parse(payload)}),
+  });
+  try {
+    await subscribeUserPush(database,{userId:"user-a",tenantId:"hotel-a",subscription:browserSubscription("endpoint-a")});
+    await subscribeUserPush(database,{userId:"user-b",tenantId:"hotel-b",subscription:browserSubscription("endpoint-b")});
+    const result=await sendRfidReturnPush(database,{
+      tenant:database.data.tenants.a,
+      room:{id:"room-204",number:"204"},
+      event:{id:"return-1",tenantId:"hotel-a",roomId:"room-204"},
+    });
+    assert.equal(result.recipients,1);
+    assert.equal(sent.length,1);
+    assert.equal(sent[0].subscription.endpoint,"endpoint-a");
+    assert.equal(sent[0].payload.type,"checkout.rfid_return_recorded");
+    assert.equal(sent[0].payload.tenantId,"hotel-a");
+    assert.match(sent[0].payload.body,/Habitación 204/);
+  } finally { reset(); }
 });
 
 test("platform_admin can store preferences for an active tenant without membership", async () => {
