@@ -1391,12 +1391,18 @@ export function startDeviceUpdate(id: string, releaseId: string) {
 export function cancelDeviceUpdate(deviceId: string, requestId: string) {
   return requestJson<import("../types/firmware").OtaUpdate>(`/api/admin/devices/${encodeURIComponent(deviceId)}/updates/${encodeURIComponent(requestId)}/cancel`, { method: "POST", body: JSON.stringify({}) });
 }
-export type DeviceCommandType = "OPEN_TRAP" | "CLOSE_TRAP" | "CYCLE_TRAP" | "SET_SERVO_CONFIG" | "SERVO_DIAG_START" | "SERVO_DIAG_STOP" | "SERVO_RAW_PWM_TEST" | "SERVO_RAW_PIN25_TEST" | "CHECK_RFID" | "RESTART" | "CHECK_UPDATE";
+export type DeviceCommandType = "OPEN_TRAP" | "CLOSE_TRAP" | "CYCLE_TRAP" | "SET_SERVO_CONFIG" | "SERVO_DIAG_START" | "SERVO_DIAG_STOP" | "SERVO_RAW_PWM_TEST" | "SERVO_RAW_PIN25_TEST" | "TEST_SERVO_POSITION" | "CHECK_RFID" | "RESTART" | "CHECK_UPDATE";
 export function sendDeviceCommand(id: string, type: DeviceCommandType, payload: Record<string, unknown> = {}) {
   return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/commands`, { method: "POST", body: JSON.stringify({ type, payload }) });
 }
-export function updateDeviceConfiguration(id: string, config: { closedAngle: number; openAngle: number; holdMs: number; allowedRfids?: string[] }) {
+export function updateDeviceConfiguration(id: string, config: import("../types/firmware").CheckoutBoxConfiguration) {
   return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/configuration`, { method: "PUT", body: JSON.stringify(config) });
+}
+export function saveDeviceRfidKey(id:string,input:{uid:string;name:string;room:string;authorized:boolean;active?:boolean}) {
+  return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/rfid-keys`,{method:"POST",body:JSON.stringify(input)});
+}
+export function deleteDeviceRfidKey(id:string,keyId:string) {
+  return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/rfid-keys/${encodeURIComponent(keyId)}`,{method:"DELETE"});
 }
 export function revokeDeviceCredential(id: string) {
   return requestJson(`/api/admin/devices/${encodeURIComponent(id)}/revoke-credential`, { method: "POST" });
@@ -1404,7 +1410,10 @@ export function revokeDeviceCredential(id: string) {
 export function deleteFirmwareRelease(id: string) {
   return requestJson(`/api/admin/firmware-releases/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
-export async function uploadFirmware(file: File, metadata: { version: string; buildId: string; hardwareModel: string; releaseNotes: string }) {
+export function publishFirmwareRelease(id:string) {
+  return requestJson(`/api/admin/firmware-releases/${encodeURIComponent(id)}/publish`,{method:"POST",body:"{}"});
+}
+export async function uploadFirmware(file: File, metadata: { version: string; buildId: string; hardwareModel: string; releaseNotes: string; status?:"DRAFT"|"PUBLISHED" }) {
   const params = new URLSearchParams({ ...metadata, fileName: file.name });
   const response = await fetch(`${getBackendUrl()}/api/admin/firmware-releases?${params}`, {
     method: "POST", credentials: "include", headers: { "Content-Type": "application/octet-stream" }, body: file,

@@ -11,9 +11,10 @@ import {
   revokeDeviceCredential,
   deleteFirmwareRelease,
   uploadFirmware,
+  publishFirmwareRelease,
   downloadFirmwareRelease,
-  updateDeviceConfiguration,
 } from "../../services/backendApi";
+import { CheckoutBoxDevicePanel } from "./CheckoutBoxDevicePanel";
 import type {
   PhysicalDevice,
   FirmwareRelease,
@@ -81,18 +82,6 @@ export function DevicesFirmwarePage() {
     hardwareModel: "CROWPANEL_7_V3",
     tenantId: "",
   });
-  const [calibration, setCalibration] = useState({ closedAngle: 10, openAngle: 90, holdMs: 1500 });
-  const [rfidAllowlist, setRfidAllowlist] = useState("");
-  const [servoDiagnosticDuration,setServoDiagnosticDuration]=useState<10|30|60|120>(60);
-  useEffect(() => {
-    if (selected?.hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1") return;
-    setCalibration({
-      closedAngle: selected.desiredConfig?.closedAngle ?? 10,
-      openAngle: selected.desiredConfig?.openAngle ?? 90,
-      holdMs: selected.desiredConfig?.holdMs ?? 1500,
-    });
-    setRfidAllowlist((selected.desiredConfig?.allowedRfids || []).join(", "));
-  }, [selected?.id]);
   async function reload() {
     const [nextDevices, nextReleases] = await Promise.all([
       getDevices(),
@@ -154,6 +143,8 @@ export function DevicesFirmwarePage() {
   }
   async function publish(event: FormEvent) {
     event.preventDefault();
+    const submitter=(event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement|null;
+    const status=submitter?.value==="DRAFT"?"DRAFT" as const:"PUBLISHED" as const;
     if (
       !file ||
       !/\.bin$/i.test(file.name) ||
@@ -164,19 +155,19 @@ export function DevicesFirmwarePage() {
       return;
     }
     await run(async () => {
-      await uploadFirmware(file, metadata);
+      await uploadFirmware(file, {...metadata,status});
       setFile(null);
       setFileKey((key) => key + 1);
-    }, "Firmware release published. SHA-256 calculated by server.");
+    }, status==="DRAFT"?"Borrador guardado. SHA-256 calculado por el servidor.":"Firmware release published. SHA-256 calculated by server.");
   }
   const compatible = updateDevice
     ? releases.filter(
         (release) =>
           release.hardwareModel === updateDevice.hardwareModel &&
+          release.status === "PUBLISHED" &&
           isNewer(release.version, updateDevice.currentFirmwareVersion),
       )
     : [];
-  const servoDiagnosticRunning=selected?.servoDiagnosticState==="RUNNING";
   return (
     <section className="module-page ota-page">
       <div className="module-title">
@@ -412,9 +403,11 @@ export function DevicesFirmwarePage() {
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
               />
             </label>
-            <button className="primary-button" disabled={busy || !file}>
+            <div className="ota-tabs"><button name="status" value="DRAFT" disabled={busy || !file}>
+              {busy ? "Guardando…" : "Guardar borrador"}
+            </button><button name="status" value="PUBLISHED" className="primary-button" disabled={busy || !file}>
               {busy ? "Uploading…" : "Publish release"}
-            </button>
+            </button></div>
           </form>
           <div className="panel ota-table-scroll">
             <table className="ota-table">
@@ -434,6 +427,7 @@ export function DevicesFirmwarePage() {
                       {release.version}
                       <br />
                       {release.buildId}
+                      <br/><strong>{release.status}</strong>
                     </td>
                     <td>
                       {release.hardwareModel}
@@ -448,7 +442,7 @@ export function DevicesFirmwarePage() {
                       <p>{release.releaseNotes}</p>
                     </td>
                     <td>
-                      <button
+                      {release.status==="PUBLISHED"&&<button
                         disabled={busy}
                         onClick={() => {
                           setTab("devices");
@@ -458,7 +452,7 @@ export function DevicesFirmwarePage() {
                         }}
                       >
                         Assign / Update device
-                      </button>{" "}
+                      </button>} {release.status==="DRAFT"&&<button disabled={busy} onClick={()=>window.confirm(`¿Publicar ${release.version} / ${release.buildId}?`)&&void run(()=>publishFirmwareRelease(release.id),"Release publicada; aún no asignada a ningún dispositivo.")}>Publicar</button>} {" "}
                       <button
                         disabled={busy}
                         onClick={() =>
@@ -538,52 +532,7 @@ export function DevicesFirmwarePage() {
               ))}
             </dl>
             {selected.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" && (
-              <section className="panel settings-form ota-form" aria-label="Trap calibration">
-                <h3>Trap calibration</h3>
-                <label>Closed
-                  <input type="number" min="10" max="170" value={calibration.closedAngle}
-                    onChange={(e) => setCalibration({ ...calibration, closedAngle: Number(e.target.value) })} />
-                </label>
-                <label>Open
-                  <input type="number" min="10" max="170" value={calibration.openAngle}
-                    onChange={(e) => setCalibration({ ...calibration, openAngle: Number(e.target.value) })} />
-                </label>
-                <label>Hold (ms)
-                  <input type="number" min="100" max="30000" step="100" value={calibration.holdMs}
-                    onChange={(e) => setCalibration({ ...calibration, holdMs: Number(e.target.value) })} />
-                </label>
-                <label>Allowed RFID UIDs
-                  <input value={rfidAllowlist} placeholder="AABBCCDD, 11223344"
-                    onChange={(e) => setRfidAllowlist(e.target.value)} />
-                </label>
-                <div className="ota-tabs">
-                  <button disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => sendDeviceCommand(selected.id, "SET_SERVO_CONFIG", calibration), "Move queued.")}>Move</button>
-                  <button disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => sendDeviceCommand(selected.id, "OPEN_TRAP"), "Open queued.")}>Open</button>
-                  <button disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => sendDeviceCommand(selected.id, "CLOSE_TRAP"), "Close queued.")}>Close</button>
-                  <button disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => sendDeviceCommand(selected.id, "CYCLE_TRAP"), "Test cycle queued.")}>Test</button>
-                  <button className="primary-button" disabled={busy||servoDiagnosticRunning} onClick={() => void run(() => updateDeviceConfiguration(selected.id, {
-                    ...calibration,
-                    allowedRfids: rfidAllowlist.split(",").map((value) => value.trim()).filter(Boolean),
-                  }), "Configuration saved for sync.")}>Save</button>
-                </div>
-                <h3>Diagnóstico SG90</h3>
-                <p>Estado: <strong>{servoDiagnosticLabel(selected.servoDiagnosticState)}</strong>
-                  {servoDiagnosticRunning?` · ${selected.servoDiagnosticRemaining??0} s restantes`:""}
-                </p>
-                <label>Duración
-                  <select value={servoDiagnosticDuration}
-                    onChange={(event)=>setServoDiagnosticDuration(Number(event.target.value) as 10|30|60|120)}>
-                    {[10,30,60,120].map((seconds)=><option key={seconds} value={seconds}>{seconds} segundos</option>)}
-                  </select>
-                </label>
-                <div className="ota-tabs">
-                  <button className="primary-button" disabled={busy||servoDiagnosticRunning}
-                    onClick={()=>void run(()=>sendDeviceCommand(selected.id,"SERVO_DIAG_START",{durationSec:servoDiagnosticDuration}),"Inicio de diagnóstico encolado.")}>INICIAR TEST</button>
-                  <button disabled={busy}
-                    onClick={()=>void run(()=>sendDeviceCommand(selected.id,"SERVO_DIAG_STOP"),"Parada de diagnóstico prioritaria encolada.")}>DETENER TEST</button>
-                </div>
-                <p>El ACK confirma que el firmware aceptó y ordenó el movimiento; el SG90 no proporciona realimentación física de posición.</p>
-              </section>
+              <CheckoutBoxDevicePanel device={selected} busy={busy} run={run}/>
             )}
             <div className="ota-tabs">
               {selected.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" && (
@@ -687,14 +636,6 @@ export function DevicesFirmwarePage() {
                 {command.result?.value?` · ${command.result.ok?"ACK":"ERROR"}: ${command.result.value}`:""}
               </p>
             ))}
-            {selected.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" && (
-              <>
-                <h3>Device logs</h3>
-                {selected.events?.map((event) => (
-                  <p key={event.id}>{new Date(event.createdAt).toLocaleString()} · {event.type} · {event.detail || "—"}</p>
-                ))}
-              </>
-            )}
           </section>
         </div>
       )}

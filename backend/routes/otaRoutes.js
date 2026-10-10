@@ -154,10 +154,18 @@ export async function handleOtaRoute({
       const cancelUpdate = pathname.match(
         /^\/api\/admin\/devices\/([^/]+)\/updates\/([^/]+)\/cancel$/,
       );
-      const release = pathname.match(
-        /^\/api\/admin\/firmware-releases\/([^/]+)(?:\/(download))?$/,
+      const rfidKey = pathname.match(
+        /^\/api\/admin\/devices\/([^/]+)\/rfid-keys(?:\/([^/]+))?$/,
       );
-      if (cancelUpdate && request.method === "POST")
+      const release = pathname.match(
+        /^\/api\/admin\/firmware-releases\/([^/]+)(?:\/(download|publish))?$/,
+      );
+      if (rfidKey && !rfidKey[2] && request.method === "POST") {
+        payload=await service.upsertRfidKey(rfidKey[1],await readOtaJson(request));
+        status=201;
+      } else if(rfidKey && rfidKey[2] && request.method==="DELETE")
+        payload=await service.deleteRfidKey(rfidKey[1],rfidKey[2]);
+      else if (cancelUpdate && request.method === "POST")
         payload = await service.cancelUpdate(
           cancelUpdate[1],
           cancelUpdate[2],
@@ -197,6 +205,8 @@ export async function handleOtaRoute({
         payload = await service.revokeCredential(device[1]);
       else if (release && !release[2] && request.method === "DELETE")
         payload = await service.deleteRelease(release[1]);
+      else if(release&&release[2]==="publish"&&request.method==="POST")
+        payload=await service.publishDraft(release[1]);
       else if (
         release &&
         release[2] === "download" &&
