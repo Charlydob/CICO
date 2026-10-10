@@ -44,10 +44,10 @@ export function heartbeat(extra = {}) {
     ...extra,
   };
 }
-function image(size = 512) {
+function image(size = 512, chipId = 9) {
   const value = Buffer.alloc(size, 0x42);
   value[0] = 0xe9;
-  value.writeUInt16LE(9, 12);
+  value.writeUInt16LE(chipId, 12);
   value.writeUInt32LE(0xabcd5432, 32);
   return value;
 }
@@ -127,7 +127,16 @@ test("release metadata rejects unknown hardware, non-bin and traversal paths", (
     assert.throws(() => validateReleaseMetadata({ ...metadata, ...patch }));
 });
 test("CheckoutBox hardware, servo commands and telemetry are strictly validated", () => {
-  assert.equal(hardwareSpec("ESP32_DEVKIT_CHECKOUT_V1").otaSlotBytes, 1792 * 1024);
+  assert.deepEqual(hardwareSpec("ESP32_DEVKIT_CHECKOUT_V1"), {
+    otaSlotBytes: 1792 * 1024,
+    espImageChipId: 0,
+    espChipName: "ESP32",
+  });
+  assert.deepEqual(hardwareSpec("CROWPANEL_7_V3"), {
+    otaSlotBytes: 1792 * 1024,
+    espImageChipId: 9,
+    espChipName: "ESP32-S3",
+  });
   assert.deepEqual(commandPayload("OPEN_TRAP"), {});
   assert.deepEqual(commandPayloadForHardware("ESP32_DEVKIT_CHECKOUT_V1", "SERVO_RAW_PWM_TEST"), {});
   assert.deepEqual(commandPayloadForHardware("ESP32_DEVKIT_CHECKOUT_V1", "SERVO_RAW_PIN25_TEST"), {});
@@ -252,7 +261,7 @@ test("OTA states advance monotonically, require boot health for success and prev
   );
   assert.equal(ACTIVE_STATES.includes("SUCCESS"), false);
 });
-test("server hashes persisted bytes and rejects empty, bootloader, merged USB and oversized firmware", async () => {
+test("firmware storage validates ESP32 and ESP32-S3 images by hardware and slot size", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "ota-storage-")),
     storage = createFirmwareStorage(root);
   try {
@@ -267,15 +276,43 @@ test("server hashes persisted bytes and rejects empty, bootloader, merged USB an
       createHash("sha256").update(bytes).digest("hex"),
     );
     assert.deepEqual(await readFile(await storage.get(artifact)), bytes);
-    const max = image(1792 * 1024);
-    const maximum = await storage.save(upload(max), device.hardwareModel);
-    assert.equal(maximum.fileSize, max.length);
+    const checkoutBytes = image(512, 0);
+    const checkoutArtifact = await storage.save(
+      upload(checkoutBytes),
+      "ESP32_DEVKIT_CHECKOUT_V1",
+    );
+    assert.equal(checkoutArtifact.fileSize, checkoutBytes.length);
+
     await assert.rejects(
-      storage.save(upload(Buffer.alloc(0)), device.hardwareModel),
+      storage.save(upload(checkoutBytes), "CROWPANEL_7_V3"),
+      /ESP32-S3 application image for CROWPANEL_7_V3/,
     );
     await assert.rejects(
-      storage.save(upload(image(1792 * 1024 + 1)), device.hardwareModel),
-      { statusCode: 413 },
+      storage.save(upload(bytes), "ESP32_DEVKIT_CHECKOUT_V1"),
+      /ESP32 application image for ESP32_DEVKIT_CHECKOUT_V1/,
+    );
+
+    for (const model of ["CROWPANEL_7_V3", "ESP32_DEVKIT_CHECKOUT_V1"]) {
+      const spec = hardwareSpec(model);
+      const maximum = await storage.save(
+        upload(image(spec.otaSlotBytes, spec.espImageChipId)),
+        model,
+      );
+      assert.equal(maximum.fileSize, spec.otaSlotBytes);
+      await assert.rejects(
+        storage.save(
+          upload(image(spec.otaSlotBytes + 1, spec.espImageChipId)),
+          model,
+        ),
+        {
+          message: `Firmware exceeds the ${spec.otaSlotBytes / 1024} KiB OTA slot for ${model}.`,
+          statusCode: 413,
+        },
+      );
+    }
+
+    await assert.rejects(
+      storage.save(upload(Buffer.alloc(0)), device.hardwareModel),
     );
     await assert.rejects(
       storage.save(upload(Buffer.alloc(512, 0xff)), device.hardwareModel),
@@ -285,9 +322,12 @@ test("server hashes persisted bytes and rejects empty, bootloader, merged USB an
     await assert.rejects(
       storage.save(upload(bootloader), device.hardwareModel),
     );
-    const otherChip = image();
-    otherChip.writeUInt16LE(0, 12);
-    await assert.rejects(storage.save(upload(otherChip), device.hardwareModel));
+    const merged = Buffer.alloc(0x10000 + bytes.length, 0xff);
+    bootloader.copy(merged);
+    bytes.copy(merged, 0x10000);
+    await assert.rejects(
+      storage.save(upload(merged), device.hardwareModel),
+    );
     await assert.rejects(
       storage.save(
         upload(bytes, { "content-length": "9999999" }),
