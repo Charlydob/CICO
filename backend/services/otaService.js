@@ -18,6 +18,39 @@ import {
   deviceEvents,
 } from "./otaProtocol.js";
 
+function rfidUid(value) {
+  const uid=textField(value,"RFID UID",10).toUpperCase();
+  if(!/^(?:[A-F0-9]{8}|[A-F0-9]{10})$/.test(uid))
+    throw otaError("RFID UID must be exactly 8 or 10 hexadecimal characters.");
+  return uid;
+}
+
+async function rebuildDesiredConfiguration(tx,device) {
+  const keys=await tx.deviceRfidKey.findMany({
+    where:{deviceId:device.id,authorized:true,active:true},
+    orderBy:{uid:"asc"},select:{uid:true},
+  });
+  if(keys.length>128) throw otaError("A device can authorize at most 128 RFID keys.",409);
+  const version=String(Date.now());
+  const config=servoConfiguration({
+    closedAngle:device.desiredConfig?.closedAngle??10,
+    openAngle:device.desiredConfig?.openAngle??90,
+    holdMs:device.desiredConfig?.holdMs??1500,
+    duplicateRfidMs:device.desiredConfig?.duplicateRfidMs,
+    activationCooldownMs:device.desiredConfig?.activationCooldownMs,
+    motionStepMs:device.desiredConfig?.motionStepMs,
+    heartbeatSec:device.desiredConfig?.heartbeatSec,
+    pollSec:device.desiredConfig?.pollSec,
+    diagnosticEnabled:device.desiredConfig?.diagnosticEnabled,
+    diagnosticTimeoutSec:device.desiredConfig?.diagnosticTimeoutSec,
+    startupBehavior:device.desiredConfig?.startupBehavior,
+    disconnectBehavior:device.desiredConfig?.disconnectBehavior,
+    allowedRfids:keys.map((key)=>key.uid),
+  },version);
+  await tx.device.update({where:{id:device.id},data:{desiredConfig:config,configRejectedReason:null}});
+  return config;
+}
+
 // Persisted requests/events are shared by every backend replica; device operations serialize in PostgreSQL.
 async function lockDevice(tx, id, authenticated) {
   await tx.$queryRaw`WITH lock AS (SELECT pg_advisory_xact_lock(hashtext(${`ota:${id}`}))) SELECT 1::int FROM lock`;
@@ -94,6 +127,7 @@ export function createOtaService(prisma, storage) {
           },
           commands: { take: 20, orderBy: { createdAt: "desc" } },
           events: { take: 100, orderBy: { createdAt: "desc" } },
+          rfidKeys: { take: 128, orderBy: [{ lastSeenAt: "desc" }, { updatedAt: "desc" }] },
           tenant: { select: { name: true, id: true } },
         },
       });
@@ -211,6 +245,11 @@ export function createOtaService(prisma, storage) {
             where: { id: device.id },
             data: {
               ...patch,
+              ...(patch.configChecksum &&
+              patch.configChecksum === current.desiredConfig?.checksum &&
+              patch.authorizedRfidCount === (current.desiredConfig?.allowedRfids?.length ?? 0)
+                ? { appliedConfig: current.desiredConfig, configAppliedAt: new Date(), configRejectedReason: null }
+                : {}),
               ...(targetTransition
                 ? {
                     lastOtaStatus: targetTransition,
@@ -241,7 +280,7 @@ export function createOtaService(prisma, storage) {
     async listReleases() {
       return (
         await prisma.firmwareRelease.findMany({
-          where: { status: "PUBLISHED" },
+          where: { status: { in:["DRAFT","PUBLISHED"] } },
           orderBy: { createdAt: "desc" },
         })
       ).map(publicRelease);
@@ -282,6 +321,17 @@ export function createOtaService(prisma, storage) {
       });
       await storage.remove(key);
       return { deleted: true };
+    },
+    async publishDraft(id) {
+      uuid(id);
+      try {
+        return publicRelease(await prisma.firmwareRelease.update({
+          where:{id,status:"DRAFT"},data:{status:"PUBLISHED"},
+        }));
+      } catch(error) {
+        if(error.code==="P2025") throw otaError("Draft release not found.",404);
+        throw error;
+      }
     },
     async assignUpdate(id, releaseId, requestedBy) {
       uuid(id);
@@ -428,7 +478,9 @@ export function createOtaService(prisma, storage) {
             configuration:
               current.hardwareModel === "ESP32_DEVKIT_CHECKOUT_V1" &&
               current.desiredConfig?.version &&
-              current.desiredConfig.version !== current.configVersion
+              (current.desiredConfig.version !== current.configVersion ||
+                current.desiredConfig.checksum !== current.configChecksum ||
+                (current.desiredConfig.allowedRfids?.length ?? 0) !== current.authorizedRfidCount)
                 ? current.desiredConfig
                 : null,
             update: update
@@ -525,7 +577,7 @@ export function createOtaService(prisma, storage) {
       const release = await prisma.firmwareRelease.findUnique({
         where: { id: releaseId },
       });
-      if (!release || release.status !== "PUBLISHED")
+      if (!release || !["DRAFT","PUBLISHED"].includes(release.status))
         throw otaError("Release not found.", 404);
       return { release, file: await storage.get(release) };
     },
@@ -540,7 +592,7 @@ export function createOtaService(prisma, storage) {
           throw otaError("Commands are disabled during OTA.", 409);
         const servoMovementCommands=[
           "OPEN_TRAP", "CLOSE_TRAP", "CYCLE_TRAP", "SET_SERVO_CONFIG",
-          "SERVO_DIAG_START", "SERVO_RAW_PWM_TEST", "SERVO_RAW_PIN25_TEST",
+          "SERVO_DIAG_START", "SERVO_RAW_PWM_TEST", "SERVO_RAW_PIN25_TEST", "TEST_SERVO_POSITION",
         ];
         if(device.servoDiagnosticState==="RUNNING" && servoMovementCommands.includes(type))
           throw otaError("Stop the running servo diagnostic first.",409);
@@ -613,7 +665,6 @@ export function createOtaService(prisma, storage) {
     async updateConfiguration(id, input) {
       uuid(id);
       const version = String(Date.now());
-      const config = servoConfiguration(input, version);
       return withDevice(id, async (tx, device) => {
         if (device.hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1")
           throw otaError("Servo configuration is only available for CheckoutBox hardware.", 409);
@@ -627,14 +678,68 @@ export function createOtaService(prisma, storage) {
         });
         if (device.servoDiagnosticState === "RUNNING" || pendingDiagnostic)
           throw otaError("Stop the servo diagnostic before changing configuration.", 409);
-        await tx.device.update({ where: { id }, data: { desiredConfig: config } });
+        const keys=await tx.deviceRfidKey.findMany({where:{deviceId:id,authorized:true,active:true},select:{uid:true},orderBy:{uid:"asc"}});
+        const config = servoConfiguration({...input,allowedRfids:keys.map((key)=>key.uid)}, version);
+        await tx.device.update({ where: { id }, data: { desiredConfig: config,configRejectedReason:null } });
         return config;
+      });
+    },
+    async upsertRfidKey(id,input) {
+      uuid(id);
+      return withDevice(id,async(tx,device)=>{
+        if(device.hardwareModel!=="ESP32_DEVKIT_CHECKOUT_V1")
+          throw otaError("RFID keys are only available for CheckoutBox hardware.",409);
+        const uid=rfidUid(input.uid);
+        const authorized=input.authorized===true;
+        const active=input.active!==false;
+        const name=textField(input.name,"RFID name",120,true)||"";
+        const room=textField(input.room,"room",32,true)||"";
+        if(authorized&&active) {
+          const count=await tx.deviceRfidKey.count({where:{deviceId:id,authorized:true,active:true,uid:{not:uid}}});
+          if(count>=128) throw otaError("A device can authorize at most 128 RFID keys.",409);
+        }
+        const key=await tx.deviceRfidKey.upsert({
+          where:{deviceId_uid:{deviceId:id,uid}},
+          create:{deviceId:id,uid,name,room,authorized,active},
+          update:{name,room,authorized,active},
+        });
+        const config=await rebuildDesiredConfiguration(tx,device);
+        return {key,configuration:config};
+      });
+    },
+    async deleteRfidKey(id,keyId) {
+      uuid(id); uuid(keyId,"RFID key ID");
+      return withDevice(id,async(tx,device)=>{
+        const key=await tx.deviceRfidKey.findUnique({where:{id:keyId}});
+        if(!key||key.deviceId!==id) throw otaError("RFID key not found.",404);
+        await tx.deviceRfidKey.delete({where:{id:keyId}});
+        const config=await rebuildDesiredConfiguration(tx,device);
+        return {deleted:true,configuration:config};
       });
     },
     async ingestEvents(device, body) {
       const events = deviceEvents(body);
-      await prisma.deviceEvent.createMany({
-        data: events.map((event) => ({ ...event, deviceId: device.id })),
+      await prisma.$transaction(async(tx)=>{
+        await tx.deviceEvent.createMany({data:events.map((event)=>({...event,deviceId:device.id}))});
+        for(const event of events) {
+          if(event.type==="RFID_READ") {
+            const match=event.detail?.match(/^([A-Fa-f0-9]{8}|[A-Fa-f0-9]{10})(?:\s|$)/);
+            if(match) {
+              const uid=match[1].toUpperCase(),seen=new Date();
+              await tx.deviceRfidKey.upsert({
+                where:{deviceId_uid:{deviceId:device.id,uid}},
+                create:{deviceId:device.id,uid,firstSeenAt:seen,lastSeenAt:seen},
+                update:{lastSeenAt:seen},
+              });
+            }
+          } else if(event.type==="CONFIG_REJECTED"||event.type==="CONFIG_STALE_REJECTED") {
+            await tx.device.update({where:{id:device.id},data:{configRejectedReason:event.detail||event.type}});
+          }
+        }
+        const cutoff=await tx.deviceEvent.findFirst({
+          where:{deviceId:device.id},orderBy:{createdAt:"desc"},skip:999,select:{createdAt:true},
+        });
+        if(cutoff) await tx.deviceEvent.deleteMany({where:{deviceId:device.id,createdAt:{lt:cutoff.createdAt}}});
       });
       return { accepted: true, count: events.length };
     },

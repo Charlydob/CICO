@@ -3023,3 +3023,13 @@ button:disabled {
 
 .ota-page button:not(.primary-button) { background: #ffffff; border: 1px solid #cfd8e3; border-radius: 8px; color: #263244; min-height: 34px; padding: 6px 9px; }
 .ota-page .ota-tabs button.active { background: #e8f1ff; color: #255da8; }
+.checkoutbox-panel { margin: 24px 0; }
+.rfid-card-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
+.rfid-card { display:grid; gap:6px; padding:12px; border:1px solid #dce2e8; border-radius:10px; background:#f9fbfd; }
+.checkoutbox-search { width:100%; max-width:520px; padding:10px; margin:8px 0 14px; }
+.calibration-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:14px 0; }
+.console-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:12px 0; }
+.status-online { color:#147a42; }.status-offline { color:#8b4650; }
+.device-console { min-height:260px; max-height:480px; overflow:auto; background:#111827; color:#dbeafe; padding:14px; border-radius:10px; font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.device-console div { border-bottom:1px solid #263247; padding:3px 0; }.device-console em { color:#7dd3fc; float:right; }.device-console .console-error { color:#fca5a5; }
+@media (max-width:640px) { .ota-modal { padding:14px; max-height:94vh; }.calibration-grid { grid-template-columns:1fr; }.device-console em { float:none; display:block; }.ota-table { min-width:680px; } }

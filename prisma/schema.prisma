@@ -399,46 +399,72 @@ enum OtaStatus {
 }
 
 model Device {
-  id                     String          @id @default(uuid()) @db.Uuid
-  deviceId               String          @unique @map("device_id")
-  tenantId               String?         @map("tenant_id") @db.Uuid
-  name                   String
-  hardwareModel          String          @map("hardware_model")
-  status                 String          @default("OFFLINE")
-  currentFirmwareVersion String?         @map("current_firmware_version")
-  currentBuildId         String?         @map("current_build_id")
-  targetFirmwareVersion  String?         @map("target_firmware_version")
-  configVersion          String?         @map("config_version")
-  lastSeenAt             DateTime?       @map("last_seen_at")
-  lastIp                 String?         @map("last_ip")
-  lastRssi               Int?            @map("last_rssi")
-  uptime                 Int?
-  freeHeap               Int?            @map("free_heap")
-  psram                  Int?
-  lastResetReason        String?         @map("last_reset_reason")
-  lastOtaStatus          OtaStatus?      @map("last_ota_status")
-  lastOtaResult          String?         @map("last_ota_result")
-  desiredConfig          Json            @default("{}") @map("desired_config")
-  lastRfid               String?         @map("last_rfid")
-  lastRfidRaw            String?         @map("last_rfid_raw")
-  trapState              String?         @map("trap_state")
-  servoDiagnosticState   String?         @map("servo_diagnostic_state")
-  servoDiagnosticRemaining Int?          @map("servo_diagnostic_remaining")
-  tokenHash              String?         @map("token_hash")
-  credentialVersion      Int             @default(0) @map("credential_version")
-  credentialRotatedAt    DateTime?       @map("credential_rotated_at")
-  credentialRevokedAt    DateTime?       @map("credential_revoked_at")
-  createdAt              DateTime        @default(now()) @map("created_at")
-  updatedAt              DateTime        @updatedAt @map("updated_at")
-  tenant                 Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  updates                OtaRequest[]
-  commands               DeviceCommand[]
-  events                 DeviceEvent[]
+  id                       String          @id @default(uuid()) @db.Uuid
+  deviceId                 String          @unique @map("device_id")
+  tenantId                 String?         @map("tenant_id") @db.Uuid
+  name                     String
+  hardwareModel            String          @map("hardware_model")
+  status                   String          @default("OFFLINE")
+  currentFirmwareVersion   String?         @map("current_firmware_version")
+  currentBuildId           String?         @map("current_build_id")
+  targetFirmwareVersion    String?         @map("target_firmware_version")
+  configVersion            String?         @map("config_version")
+  lastSeenAt               DateTime?       @map("last_seen_at")
+  lastIp                   String?         @map("last_ip")
+  lastRssi                 Int?            @map("last_rssi")
+  uptime                   Int?
+  freeHeap                 Int?            @map("free_heap")
+  psram                    Int?
+  lastResetReason          String?         @map("last_reset_reason")
+  lastOtaStatus            OtaStatus?      @map("last_ota_status")
+  lastOtaResult            String?         @map("last_ota_result")
+  desiredConfig            Json            @default("{}") @map("desired_config")
+  appliedConfig            Json            @default("{}") @map("applied_config")
+  configChecksum           String?         @map("config_checksum")
+  authorizedRfidCount      Int?            @map("authorized_rfid_count")
+  configAppliedAt          DateTime?       @map("config_applied_at")
+  configRejectedReason     String?         @map("config_rejected_reason")
+  lastRfid                 String?         @map("last_rfid")
+  lastRfidRaw              String?         @map("last_rfid_raw")
+  trapState                String?         @map("trap_state")
+  servoDiagnosticState     String?         @map("servo_diagnostic_state")
+  servoDiagnosticRemaining Int?            @map("servo_diagnostic_remaining")
+  tokenHash                String?         @map("token_hash")
+  credentialVersion        Int             @default(0) @map("credential_version")
+  credentialRotatedAt      DateTime?       @map("credential_rotated_at")
+  credentialRevokedAt      DateTime?       @map("credential_revoked_at")
+  createdAt                DateTime        @default(now()) @map("created_at")
+  updatedAt                DateTime        @updatedAt @map("updated_at")
+  tenant                   Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  updates                  OtaRequest[]
+  commands                 DeviceCommand[]
+  events                   DeviceEvent[]
+  rfidKeys                 DeviceRfidKey[]
 
   @@index([tenantId])
   @@index([lastSeenAt])
   @@index([hardwareModel])
   @@map("devices")
+}
+
+model DeviceRfidKey {
+  id          String    @id @default(uuid()) @db.Uuid
+  deviceId    String    @map("device_id") @db.Uuid
+  uid         String
+  name        String    @default("")
+  room        String    @default("")
+  authorized  Boolean   @default(false)
+  active      Boolean   @default(true)
+  firstSeenAt DateTime? @map("first_seen_at")
+  lastSeenAt  DateTime? @map("last_seen_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  device      Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, uid])
+  @@index([deviceId, lastSeenAt])
+  @@index([deviceId, authorized, active])
+  @@map("device_rfid_keys")
 }
 
 model FirmwareRelease {

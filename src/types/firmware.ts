@@ -28,6 +28,27 @@ export interface OtaUpdate {
     createdAt: string;
   }>;
 }
+export interface CheckoutBoxConfiguration {
+  version?: string;
+  checksum?: string;
+  closedAngle: number;
+  openAngle: number;
+  holdMs: number;
+  duplicateRfidMs: number;
+  activationCooldownMs: number;
+  motionStepMs: number;
+  heartbeatSec: number;
+  pollSec: number;
+  diagnosticEnabled: boolean;
+  diagnosticTimeoutSec: number;
+  startupBehavior: "CLOSED"|"KEEP_LAST";
+  disconnectBehavior: "KEEP_LOCAL"|"CLOSE";
+  allowedRfids?: string[];
+}
+export interface DeviceRfidKey {
+  id:string; uid:string; name:string; room:string; authorized:boolean; active:boolean;
+  firstSeenAt:string|null; lastSeenAt:string|null; createdAt:string; updatedAt:string;
+}
 export interface PhysicalDevice {
   id: string;
   deviceId: string;
@@ -39,6 +60,10 @@ export interface PhysicalDevice {
   currentBuildId: string | null;
   targetFirmwareVersion: string | null;
   configVersion: string | null;
+  configChecksum:string|null;
+  authorizedRfidCount:number|null;
+  configAppliedAt:string|null;
+  configRejectedReason:string|null;
   lastSeenAt: string | null;
   lastIp: string | null;
   lastRssi: number | null;
@@ -53,13 +78,8 @@ export interface PhysicalDevice {
   trapState: string | null;
   servoDiagnosticState: "INACTIVE" | "RUNNING" | "COMPLETED" | "ERROR" | null;
   servoDiagnosticRemaining: number | null;
-  desiredConfig: {
-    version?: string;
-    closedAngle?: number;
-    openAngle?: number;
-    holdMs?: number;
-    allowedRfids?: string[];
-  };
+  desiredConfig: Partial<CheckoutBoxConfiguration>;
+  appliedConfig: Partial<CheckoutBoxConfiguration>;
   credentialConfigured: boolean;
   latestUpdate?: OtaUpdate | null;
   updates?: OtaUpdate[];
@@ -73,5 +93,6 @@ export interface PhysicalDevice {
     result?: { ok: boolean; value: string } | null;
   }>;
   events?: Array<{ id: string; type: string; detail: string | null; uptimeMs: number; createdAt: string }>;
+  rfidKeys?: DeviceRfidKey[];
   tenant?: { id: string; name: string } | null;
 }

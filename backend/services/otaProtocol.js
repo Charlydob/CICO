@@ -8,7 +8,7 @@ export const HARDWARE = Object.freeze({
 export const COMMANDS = Object.freeze([
   "OPEN_TRAP", "CLOSE_TRAP", "CYCLE_TRAP", "SET_SERVO_CONFIG",
   "SERVO_DIAG_START", "SERVO_DIAG_STOP", "SERVO_RAW_PWM_TEST",
-  "SERVO_RAW_PIN25_TEST", "CHECK_RFID", "RESTART", "CHECK_UPDATE",
+  "SERVO_RAW_PIN25_TEST", "TEST_SERVO_POSITION", "CHECK_RFID", "RESTART", "CHECK_UPDATE",
 ]);
 export const SERVO_DIAGNOSTIC_DURATIONS = Object.freeze([10,30,60,120]);
 export const ACTIVE_STATES = [
@@ -111,6 +111,8 @@ export function validateReleaseMetadata(input) {
   const fileName = textField(input.fileName, "file name", 128);
   if (!/^[\w. -]+\.bin$/i.test(fileName) || fileName.includes(".."))
     throw otaError("Upload an application .bin file.");
+  const status=input.status??"PUBLISHED";
+  if(!["DRAFT","PUBLISHED"].includes(status)) throw otaError("Invalid release status.");
   return {
     version: version(input.version),
     buildId: textField(input.buildId, "build ID"),
@@ -118,6 +120,7 @@ export function validateReleaseMetadata(input) {
     fileName,
     releaseNotes:
       textField(input.releaseNotes, "release notes", 8000, true) || "",
+    status,
   };
 }
 function int(value, name, min = 0, max = 2147483647) {
@@ -145,6 +148,9 @@ export function heartbeatPatch(body, device) {
     const servoDiagnosticState = textField(body.servo_diag_state, "servo diagnostic state", 16, true);
     const servoDiagnosticRemaining = body.servo_diag_remaining_s === undefined
       ? null : int(body.servo_diag_remaining_s,"servo diagnostic remaining seconds",0,120);
+    const configChecksum = textField(body.config_checksum,"config checksum",8,true);
+    const authorizedRfidCount = body.authorized_rfid_count === undefined
+      ? null : int(body.authorized_rfid_count,"authorized RFID count",0,128);
     if (lastRfid && !/^[A-Fa-f0-9]+$/.test(lastRfid)) throw otaError("Invalid RFID value.");
     if (lastRfidRaw && !/^[A-Fa-f0-9]+$/.test(lastRfidRaw)) throw otaError("Invalid RFID raw frame.");
     if (trapState && !["OPEN", "CLOSED"].includes(trapState)) throw otaError("Invalid trap state.");
@@ -152,8 +158,11 @@ export function heartbeatPatch(body, device) {
       throw otaError("Invalid servo diagnostic state.");
     if (servoDiagnosticState !== "RUNNING" && servoDiagnosticRemaining)
       throw otaError("Servo diagnostic remaining time requires RUNNING state.");
+    if(configChecksum && !/^[A-Fa-f0-9]{8}$/.test(configChecksum))
+      throw otaError("Invalid configuration checksum.");
     Object.assign(checkout, { lastRfid, lastRfidRaw, trapState,
-      servoDiagnosticState, servoDiagnosticRemaining });
+      servoDiagnosticState, servoDiagnosticRemaining, configChecksum,
+      authorizedRfidCount });
   }
   return {
     currentFirmwareVersion: version(body.firmware_version),
@@ -175,9 +184,20 @@ export function servoConfiguration(input, versionValue = null) {
   const closedAngle = int(input.closedAngle, "closed angle", 10, 170);
   const openAngle = int(input.openAngle, "open angle", 10, 170);
   const holdMs = int(input.holdMs, "hold milliseconds", 100, 30000);
+  const duplicateRfidMs = int(input.duplicateRfidMs ?? 1500,"RFID repeat protection",250,10000);
+  const activationCooldownMs = int(input.activationCooldownMs ?? 1500,"activation cooldown",0,30000);
+  const motionStepMs = int(input.motionStepMs ?? 0,"servo movement step",0,100);
+  const heartbeatSec = int(input.heartbeatSec ?? 25,"heartbeat seconds",10,120);
+  const pollSec = int(input.pollSec ?? 20,"poll seconds",5,120);
+  const diagnosticTimeoutSec = int(input.diagnosticTimeoutSec ?? 300,"diagnostic timeout",30,900);
+  const diagnosticEnabled = input.diagnosticEnabled !== false;
+  const startupBehavior = input.startupBehavior ?? "CLOSED";
+  const disconnectBehavior = input.disconnectBehavior ?? "KEEP_LOCAL";
 
   if (closedAngle === openAngle)
     throw otaError("Open and closed angles must differ.");
+  if(!["CLOSED","KEEP_LAST"].includes(startupBehavior)) throw otaError("Invalid startup behavior.");
+  if(!["KEEP_LOCAL","CLOSE"].includes(disconnectBehavior)) throw otaError("Invalid disconnect behavior.");
 
   const allowedRfids =
     input.allowedRfids === undefined ? [] : input.allowedRfids;
@@ -193,15 +213,44 @@ export function servoConfiguration(input, versionValue = null) {
   )
     throw otaError("RFID allowlist entries must be exactly 8 or 10 hexadecimal characters; maximum 128 entries.");
 
-  return {
+  const config = {
     closedAngle,
     openAngle,
     holdMs,
+    duplicateRfidMs,
+    activationCooldownMs,
+    motionStepMs,
+    heartbeatSec,
+    pollSec,
+    diagnosticEnabled,
+    diagnosticTimeoutSec,
+    startupBehavior,
+    disconnectBehavior,
     allowedRfids: [
       ...new Set(allowedRfids.map((value) => value.toUpperCase())),
     ],
     ...(versionValue ? { version: versionValue } : {}),
   };
+  return { ...config, checksum: configurationChecksum(config) };
+}
+
+export function configurationChecksum(config) {
+  const ids=[...(config.allowedRfids||[])].map((v)=>v.toUpperCase()).sort();
+  const canonical=[
+    `closed=${config.closedAngle}`,`open=${config.openAngle}`,`hold=${config.holdMs}`,
+    `duplicate=${config.duplicateRfidMs??1500}`,`cooldown=${config.activationCooldownMs??1500}`,
+    `step=${config.motionStepMs??0}`,`heartbeat=${config.heartbeatSec??25}`,
+    `poll=${config.pollSec??20}`,`diag=${config.diagnosticEnabled===false?0:1}`,
+    `diagTimeout=${config.diagnosticTimeoutSec??300}`,
+    `startup=${config.startupBehavior??"CLOSED"}`,`disconnect=${config.disconnectBehavior??"KEEP_LOCAL"}`,
+    `rfids=${ids.join(",")}`,
+  ].join("|");
+  let hash=0x811c9dc5;
+  for(const byte of Buffer.from(canonical,"utf8")) {
+    hash^=byte;
+    hash=Math.imul(hash,0x01000193)>>>0;
+  }
+  return hash.toString(16).toUpperCase().padStart(8,"0");
 }
 
 export function commandPayload(type, payload) {
@@ -223,6 +272,11 @@ export function commandPayload(type, payload) {
   }
 
   if(type === "SERVO_DIAG_STOP") return {};
+  if(type === "TEST_SERVO_POSITION") {
+    if(!payload || !Number.isInteger(payload.angle) || payload.angle<10 || payload.angle>170)
+      throw otaError("Test angle must be between 10 and 170 degrees.");
+    return {angle:payload.angle};
+  }
 
   if (
     payload !== undefined &&
@@ -238,7 +292,7 @@ export function commandPayload(type, payload) {
 export function commandPayloadForHardware(hardwareModel, type, payload) {
   hardwareSpec(hardwareModel);
   if (
-    ["SERVO_DIAG_START","SERVO_DIAG_STOP","SERVO_RAW_PWM_TEST", "SERVO_RAW_PIN25_TEST"].includes(type) &&
+    ["SERVO_DIAG_START","SERVO_DIAG_STOP","SERVO_RAW_PWM_TEST", "SERVO_RAW_PIN25_TEST","TEST_SERVO_POSITION"].includes(type) &&
     hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1"
   )
     throw otaError("Servo diagnostics are only available for CheckoutBox hardware.", 409);

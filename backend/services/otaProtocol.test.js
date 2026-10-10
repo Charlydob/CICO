@@ -138,9 +138,13 @@ test("CheckoutBox hardware, servo commands and telemetry are strictly validated"
   assert.throws(()=>commandPayloadForHardware("CROWPANEL_7_V3","SERVO_DIAG_START",{durationSec:60}));
   for(const durationSec of [9,11,121])
     assert.throws(()=>commandPayload("SERVO_DIAG_START",{durationSec}));
-  assert.deepEqual(commandPayload("SET_SERVO_CONFIG", { closedAngle: 10, openAngle: 95, holdMs: 1200 }), {
+  const managed=commandPayload("SET_SERVO_CONFIG", { closedAngle: 10, openAngle: 95, holdMs: 1200 });
+  assert.deepEqual({closedAngle:managed.closedAngle,openAngle:managed.openAngle,holdMs:managed.holdMs,allowedRfids:managed.allowedRfids}, {
     closedAngle: 10, openAngle: 95, holdMs: 1200, allowedRfids: [],
   });
+  assert.match(managed.checksum,/^[A-F0-9]{8}$/);
+  assert.deepEqual(commandPayload("TEST_SERVO_POSITION",{angle:170}),{angle:170});
+  assert.throws(()=>commandPayload("TEST_SERVO_POSITION",{angle:180}));
   assert.deepEqual(commandPayload("SET_SERVO_CONFIG", {
     closedAngle: 10, openAngle: 95, holdMs: 1200, allowedRfids: ["aabbccdd"],
   }).allowedRfids, ["AABBCCDD"]);
@@ -161,10 +165,13 @@ test("CheckoutBox hardware, servo commands and telemetry are strictly validated"
   const patch = heartbeatPatch({ ...heartbeat(), device_id: checkoutDevice.deviceId,
     hardware_model: checkoutDevice.hardwareModel, last_rfid: "AABBCCDD",
     last_rfid_raw: "020902AABBCCDD0003", trap_state: "CLOSED",
-    servo_diag_state:"RUNNING",servo_diag_remaining_s:42 }, checkoutDevice);
+    servo_diag_state:"RUNNING",servo_diag_remaining_s:42,
+    config_checksum:"A1B2C3D4",authorized_rfid_count:2 }, checkoutDevice);
   assert.equal(patch.lastRfid, "AABBCCDD");
   assert.equal(patch.servoDiagnosticState,"RUNNING");
   assert.equal(patch.servoDiagnosticRemaining,42);
+  assert.equal(patch.configChecksum,"A1B2C3D4");
+  assert.equal(patch.authorizedRfidCount,2);
   assert.throws(()=>heartbeatPatch({...heartbeat(),device_id:checkoutDevice.deviceId,
     hardware_model:checkoutDevice.hardwareModel,servo_diag_state:"COMPLETED",
     servo_diag_remaining_s:1},checkoutDevice));
