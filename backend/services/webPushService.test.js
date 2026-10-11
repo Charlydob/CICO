@@ -6,10 +6,12 @@ import {
   ensureWebPushConfig,
   getScheduledPushStatus,
   getPushStatus,
+  getCheckoutPushDiagnostic,
   processDueScheduledPushes,
   resolveVapidSubject,
   schedulePush,
   sendRfidReturnPush,
+  sendNewCheckoutPush,
   sendPushToSubscription,
   sendTestPushToSubscription,
   setWebPushTestHooks,
@@ -36,7 +38,9 @@ function createFakeDatabase(initial = {}) {
     data,
     async setRecord(collection, id, value) {
       data[collection] ||= {};
-      data[collection][id] = { ...value, id };
+      data[collection][id] = collection === "diagnostics"
+        ? { key: id, value }
+        : { ...value, id };
       return data[collection][id];
     },
     async getRecord(collection, id) {
@@ -394,6 +398,138 @@ test("platform_admin can store preferences for an active tenant without membersh
   assert.equal(preference.userId, "admin");
   assert.equal(preference.tenantId, "hotel-a");
   assert.equal(Object.values(database.data.memberships).length, 0);
+});
+
+test("checkout push includes hotel and room and accepts a subscribed support admin", async () => {
+  const keys = validVapidKeys();
+  const sent = [];
+  const database = createFakeDatabase({
+    users: {
+      admin: { id: "admin", globalRole: "platform_admin", active: true },
+      other: { id: "other", globalRole: null, active: true },
+    },
+    memberships: {
+      other: { id: "membership-other", userId: "other", tenantId: "other-hotel", role: "manager" },
+    },
+    tenants: {
+      demo: { id: "demo", slug: "demo-hotel", name: "Demo Hotel", active: true },
+      other: { id: "other-hotel", slug: "other-hotel", name: "Other Hotel", active: true },
+    },
+  });
+  const reset = setWebPushTestHooks({
+    generateVapidKeys: () => keys,
+    sendNotification: async (subscription, payload) => {
+      sent.push({ subscription, payload: JSON.parse(payload) });
+      return { statusCode: 201 };
+    },
+  });
+
+  try {
+    await subscribeUserPush(database, {
+      userId: "other",
+      tenantId: "other-hotel",
+      subscription: browserSubscription("https://push.example.test/foreign-endpoint"),
+    });
+    await subscribeUserPush(database, {
+      userId: "admin",
+      tenantId: "demo",
+      subscription: browserSubscription("https://push.example.test/private-endpoint"),
+    });
+    const result = await sendNewCheckoutPush(database, {
+      tenant: database.data.tenants.demo,
+      room: { id: "room-204", number: "204" },
+      event: { id: "checkout-1", tenantId: "demo", roomId: "room-204", source: "rfid" },
+    });
+    const diagnostic = await getCheckoutPushDiagnostic(database, "demo");
+
+    assert.equal(result.recipients, 1);
+    assert.equal(result.activeSubscriptions, 1);
+    assert.equal(result.acceptedByProvider, 1);
+    assert.equal(result.status, "provider_accepted");
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].subscription.endpoint, "https://push.example.test/private-endpoint");
+    assert.match(sent[0].payload.body, /Demo Hotel.*204/);
+    assert.equal(sent[0].payload.url, "/t/demo-hotel/?housekeepingRoom=204");
+    assert.equal(diagnostic.eventSource, "rfid");
+    assert.equal(diagnostic.status, "provider_accepted");
+    assert.equal(diagnostic.results[0].httpStatus, 201);
+    assert.equal(JSON.stringify(diagnostic).includes("private-endpoint"), false);
+    assert.equal(JSON.stringify(diagnostic).includes(keys.privateKey), false);
+  } finally {
+    reset();
+  }
+});
+
+test("checkout push diagnoses eligible users without active subscriptions", async () => {
+  const database = createFakeDatabase({
+    users: { manager: { id: "manager", globalRole: null, active: true } },
+    memberships: {
+      manager: { id: "membership-manager", userId: "manager", tenantId: "hotel-a", role: "manager" },
+    },
+    tenants: { hotel: { id: "hotel-a", slug: "hotel-a", name: "Hotel A" } },
+  });
+  await updatePushPreference(database, "manager", "hotel-a", { enabled: true, newCheckout: true });
+
+  const result = await sendNewCheckoutPush(database, {
+    tenant: database.data.tenants.hotel,
+    room: { id: "room-1", number: "1" },
+    event: { id: "checkout-1", tenantId: "hotel-a", roomId: "room-1", source: "manual" },
+  });
+
+  assert.equal(result.recipients, 1);
+  assert.equal(result.activeSubscriptions, 0);
+  assert.equal(result.status, "no_active_subscriptions");
+  assert.equal((await getCheckoutPushDiagnostic(database, "hotel-a")).missingSubscriptions, 1);
+});
+
+test("expired checkout subscription is disabled and rejection is diagnostic", async () => {
+  const database = createFakeDatabase({
+    users: { manager: { id: "manager", globalRole: null, active: true } },
+    memberships: {
+      manager: { id: "membership-manager", userId: "manager", tenantId: "hotel-a", role: "manager" },
+    },
+    tenants: { hotel: { id: "hotel-a", slug: "hotel-a", name: "Hotel A" } },
+  });
+  const reset = setWebPushTestHooks({
+    generateVapidKeys: validVapidKeys,
+    sendNotification: async () => {
+      const error = new Error("Push subscription expired.");
+      error.statusCode = 410;
+      throw error;
+    },
+  });
+
+  try {
+    const subscription = await subscribeUserPush(database, {
+      userId: "manager",
+      tenantId: "hotel-a",
+      subscription: browserSubscription("expired-endpoint"),
+    });
+    const result = await sendNewCheckoutPush(database, {
+      tenant: database.data.tenants.hotel,
+      room: { id: "room-1", number: "1" },
+      event: { id: "checkout-1", tenantId: "hotel-a", roomId: "room-1", source: "qr" },
+    });
+    const diagnostic = await getCheckoutPushDiagnostic(database, "hotel-a");
+
+    assert.equal(result.status, "provider_rejected");
+    assert.equal(result.rejectedByProvider, 1);
+    assert.equal(diagnostic.results[0].httpStatus, 410);
+    assert.equal(diagnostic.results[0].disabled, true);
+    assert.ok(database.data.pushSubscriptions[subscription.id].disabledAt);
+
+    const followingResult = await sendNewCheckoutPush(database, {
+      tenant: database.data.tenants.hotel,
+      room: { id: "room-2", number: "2" },
+      event: { id: "checkout-2", tenantId: "hotel-a", roomId: "room-2", source: "manual" },
+    });
+    assert.equal(followingResult.status, "subscriptions_disabled");
+    assert.equal(followingResult.activeSubscriptions, 0);
+    assert.equal(followingResult.disabledSubscriptions, 1);
+    assert.equal((await getCheckoutPushDiagnostic(database, "hotel-a")).missingSubscriptions, 0);
+  } finally {
+    reset();
+  }
 });
 
 test("scheduled push is persisted and sent when due without a frontend timer", async () => {

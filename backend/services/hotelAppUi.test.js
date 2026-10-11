@@ -27,3 +27,12 @@ test("dashboard hides demo reservations and legacy housekeeping routes redirect 
   assert.doesNotMatch(layout, /route: "housekeeping" as AppRoute/);
   assert.match(dashboard, /status\.reservationSource !== "demo"/);
 });
+
+test("profile push state requires the active hotel preference and exposes a provider test", async () => {
+  const profile = await source("src/modules/profile/ProfilePage.tsx");
+
+  assert.match(profile, /pushStatus\?\.preference\?\.enabled/);
+  assert.match(profile, /updatePushPreferences\(\{ enabled: false \}\)/);
+  assert.match(profile, /Probar notificación/);
+  assert.match(profile, /Esto no confirma que la notificación se haya mostrado en el iPhone/);
+});

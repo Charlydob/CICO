@@ -788,7 +788,7 @@ export async function dispatchCheckoutNotifications(database, result) {
     getTenantSettings(database, tenantId),
     getSavedHousekeepingBoard(database, tenantId),
   ]);
-  void Promise.allSettled([
+  const results = await Promise.allSettled([
     sendCheckoutNotification({
       database,
       tenant,
@@ -802,19 +802,29 @@ export async function dispatchCheckoutNotifications(database, result) {
       room: result.room,
       event: result.event,
     }),
-  ]).then((results) => {
-    const webPushFailure = results[1];
-    if (webPushFailure?.status === "rejected") {
-      const error = webPushFailure.reason;
-      const message = error instanceof Error ? error.message : "unknown error";
-      console.warn(`[WebPush] checkout push failed: ${message}`);
-    }
-  });
+  ]);
+  const webPushResult = results[1];
+  if (webPushResult?.status === "rejected") {
+    const error = webPushResult.reason;
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.warn(`[WebPush] checkout push failed: ${message}`);
+  } else if (webPushResult?.value) {
+    const push = webPushResult.value;
+    console.info(
+      `[WebPush] checkout ${result.event.id}: ${push.status}; ` +
+        `${push.recipients} recipients, ${push.activeSubscriptions} subscriptions, ` +
+        `${push.acceptedByProvider} accepted, ${push.rejectedByProvider} rejected`,
+    );
+  }
 
   return {
     duplicate: false,
     event: result.event,
     room: result.room,
+    notifications: {
+      checkout: results[0],
+      webPush: results[1],
+    },
   };
 }
 

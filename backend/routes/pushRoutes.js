@@ -1,5 +1,6 @@
 import {
   getScheduledPushStatus,
+  getCheckoutPushDiagnostic,
   getPushStatus,
   schedulePush,
   sendTestPushToSubscription,
@@ -7,7 +8,7 @@ import {
   unsubscribeUserPush,
   updatePushPreference,
 } from "../services/webPushService.js";
-import { requireTenant } from "../services/tenantService.js";
+import { requireTenant, requireTenantAdmin } from "../services/tenantService.js";
 
 function clampDelaySeconds(value) {
   const parsed = Number(value);
@@ -42,6 +43,17 @@ export async function handlePushRoute({ request, pathname, body, context }) {
     return {
       status: 200,
       payload: await getPushStatus(database, { userId, tenantId }),
+    };
+  }
+
+  if (request.method === "GET" && pathname === "/api/push/diagnostics") {
+    const activeTenantId = requireTenant(session);
+    requireTenantAdmin(session, activeTenantId);
+    return {
+      status: 200,
+      payload: {
+        diagnostic: await getCheckoutPushDiagnostic(database, activeTenantId),
+      },
     };
   }
 

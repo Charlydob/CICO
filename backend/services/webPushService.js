@@ -530,12 +530,51 @@ async function recipientsForTenant(database, tenantId, predicate) {
 async function sendPayloadToUser(database, userId, payload) {
   const subscriptions = await activeSubscriptionsForUser(database, userId);
   const results = await Promise.allSettled(
-    subscriptions.map((subscription) => sendPushToSubscription(database, subscription, payload)),
+    subscriptions.map(async (subscription) => ({
+      subscriptionId: subscription.id,
+      ...(await sendPushToSubscription(database, subscription, payload)),
+    })),
   );
 
   return results.map((result) =>
     result.status === "fulfilled" ? result.value : { sent: false, error: result.reason?.message },
   );
+}
+
+function checkoutPushDiagnosticKey(tenantId) {
+  return `checkout-push:${tenantId}`;
+}
+
+function safePushResult(result) {
+  const safeText = (value) =>
+    truncateDiagnosticText(cleanString(value).replace(/https?:\/\/\S+/gi, "[redacted-url]"), 500);
+  return {
+    subscriptionId: result.subscriptionId || "",
+    status: result.sent
+      ? "provider_accepted"
+      : result.skipped
+        ? "subscription_disabled"
+        : "provider_rejected",
+    httpStatus: result.httpStatus || null,
+    providerReason: safeText(result.providerReason),
+    error: safeText(result.error),
+    disabled: Boolean(result.disabled),
+  };
+}
+
+async function saveCheckoutPushDiagnostic(database, tenantId, diagnostic) {
+  try {
+    await database.setRecord("diagnostics", checkoutPushDiagnosticKey(tenantId), diagnostic);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.warn(`[WebPush] could not persist checkout diagnostic: ${message}`);
+  }
+}
+
+export async function getCheckoutPushDiagnostic(database, tenantId) {
+  const record = await getRecord(database, "diagnostics", checkoutPushDiagnosticKey(tenantId));
+  const diagnostic = record?.value;
+  return diagnostic?.tenantId === tenantId ? diagnostic : null;
 }
 
 export async function sendNewCheckoutPush(database, { tenant, room, event }) {
@@ -547,19 +586,108 @@ export async function sendNewCheckoutPush(database, { tenant, room, event }) {
     event,
     badge,
     title: `🧹 Habitacion ${room.number}`,
-    body: "Checkout recibido. Lista para limpieza.",
+    body: `${tenant.name} · Habitación ${room.number} lista para limpieza.`,
   });
   const recipients = await recipientsForTenant(
     database,
     tenant.id,
     ({ role, preference }) => canUseHousekeeping(role) && Boolean(preference.newCheckout),
   );
-
-  const results = await Promise.allSettled(
-    recipients.map((recipient) => sendPayloadToUser(database, recipient.user.id, payload)),
+  const plans = await Promise.all(
+    recipients.map(async (recipient) => {
+      const subscriptions = (await listRecords(database, "pushSubscriptions")).filter(
+        (subscription) => subscription.userId === recipient.user.id,
+      );
+      return {
+        recipient,
+        subscriptions: subscriptions.filter((subscription) => !subscription.disabledAt),
+        disabledSubscriptions: subscriptions.filter((subscription) => subscription.disabledAt),
+      };
+    }),
   );
+  const activeSubscriptions = plans.reduce((total, plan) => total + plan.subscriptions.length, 0);
+  const disabledSubscriptions = plans.reduce(
+    (total, plan) => total + plan.disabledSubscriptions.length,
+    0,
+  );
+  const attemptedAt = now();
+  const baseDiagnostic = {
+    attemptedAt,
+    completedAt: null,
+    tenantId: tenant.id,
+    hotelName: tenant.name || "",
+    eventId: event.id,
+    eventSource: event.source || "",
+    roomId: room.id,
+    roomNumber: room.number || "",
+    eventRegistered: true,
+    notificationPrepared: true,
+    eligibleRecipients: recipients.length,
+    activeSubscriptions,
+    disabledSubscriptions,
+    missingSubscriptions: plans.filter(
+      (plan) => plan.subscriptions.length + plan.disabledSubscriptions.length === 0,
+    ).length,
+    acceptedByProvider: 0,
+    rejectedByProvider: 0,
+    status: activeSubscriptions
+      ? "notification_prepared"
+      : disabledSubscriptions
+        ? "subscriptions_disabled"
+        : "no_active_subscriptions",
+    results: [],
+  };
+  await saveCheckoutPushDiagnostic(database, tenant.id, baseDiagnostic);
 
-  return { recipients: recipients.length, results };
+  const attempts = plans.flatMap((plan) =>
+    plan.subscriptions.map(async (subscription) => {
+      try {
+        return {
+          subscriptionId: subscription.id,
+          ...(await sendPushToSubscription(database, subscription, payload)),
+        };
+      } catch (error) {
+        return {
+          subscriptionId: subscription.id,
+          sent: false,
+          error: error instanceof Error ? error.message : "Web Push failed.",
+        };
+      }
+    }),
+  );
+  const results = (await Promise.all(attempts)).map(safePushResult);
+  const acceptedByProvider = results.filter((result) => result.status === "provider_accepted").length;
+  const rejectedByProvider = results.filter((result) => result.status === "provider_rejected").length;
+  const status = !recipients.length
+    ? "no_eligible_recipients"
+    : !activeSubscriptions
+      ? disabledSubscriptions
+        ? "subscriptions_disabled"
+        : "no_active_subscriptions"
+      : acceptedByProvider && rejectedByProvider
+        ? "partially_accepted"
+        : acceptedByProvider
+          ? "provider_accepted"
+          : "provider_rejected";
+  const diagnostic = {
+    ...baseDiagnostic,
+    completedAt: now(),
+    acceptedByProvider,
+    rejectedByProvider,
+    status,
+    results,
+  };
+  await saveCheckoutPushDiagnostic(database, tenant.id, diagnostic);
+
+  return {
+    recipients: recipients.length,
+    activeSubscriptions,
+    disabledSubscriptions,
+    acceptedByProvider,
+    rejectedByProvider,
+    status,
+    results,
+  };
 }
 
 export async function sendRfidReturnPush(database, { tenant, room, event }) {

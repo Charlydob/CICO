@@ -132,3 +132,52 @@ test("GET /api/push/test-schedule/:id returns the scheduled test status", async 
     httpStatus: 403,
   });
 });
+
+test("GET /api/push/diagnostics is tenant-scoped and admin-only", async () => {
+  const database = createFakeDatabase({
+    diagnostics: {
+      "checkout-push:hotel-a": {
+        key: "checkout-push:hotel-a",
+        value: { tenantId: "hotel-a", status: "provider_accepted", acceptedByProvider: 1 },
+      },
+      "checkout-push:hotel-b": {
+        key: "checkout-push:hotel-b",
+        value: { tenantId: "hotel-b", status: "provider_rejected", rejectedByProvider: 1 },
+      },
+    },
+  });
+  const adminSession = {
+    user: { id: "admin", globalRole: "platform_admin" },
+    activeTenantId: "hotel-a",
+    memberships: [],
+    isPlatformAdmin: true,
+  };
+  const result = await handlePushRoute({
+    request: { method: "GET", headers: {} },
+    pathname: "/api/push/diagnostics",
+    body: {},
+    context: { database, session: adminSession },
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(result.payload.diagnostic.tenantId, "hotel-a");
+  assert.equal(result.payload.diagnostic.status, "provider_accepted");
+
+  await assert.rejects(
+    () => handlePushRoute({
+      request: { method: "GET", headers: {} },
+      pathname: "/api/push/diagnostics",
+      body: {},
+      context: {
+        database,
+        session: {
+          user: { id: "staff", globalRole: null },
+          activeTenantId: "hotel-a",
+          memberships: [{ tenantId: "hotel-a", userId: "staff", role: "staff" }],
+          isPlatformAdmin: false,
+        },
+      },
+    }),
+    /Tenant admin access is required/,
+  );
+});

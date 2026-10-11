@@ -892,6 +892,34 @@ export interface PushTestResult {
   };
 }
 
+export interface CheckoutPushDiagnostic {
+  attemptedAt: string;
+  completedAt?: string | null;
+  tenantId: string;
+  hotelName: string;
+  eventId: string;
+  eventSource: string;
+  roomId: string;
+  roomNumber: string;
+  eventRegistered: boolean;
+  notificationPrepared: boolean;
+  eligibleRecipients: number;
+  activeSubscriptions: number;
+  disabledSubscriptions: number;
+  missingSubscriptions: number;
+  acceptedByProvider: number;
+  rejectedByProvider: number;
+  status: string;
+  results: Array<{
+    subscriptionId: string;
+    status: string;
+    httpStatus?: number | null;
+    providerReason?: string;
+    error?: string;
+    disabled?: boolean;
+  }>;
+}
+
 export interface ScheduledPushTestStatus {
   id: string;
   status: "pending" | "sending" | "sent" | "failed";
@@ -1007,6 +1035,13 @@ export async function sendPushTest(endpoint: string): Promise<PushTestResult> {
     method: "POST",
     body: JSON.stringify({ endpoint }),
   });
+}
+
+export async function getCheckoutPushDiagnostic(): Promise<CheckoutPushDiagnostic | null> {
+  const result = await requestJson<{ diagnostic: CheckoutPushDiagnostic | null }>(
+    "/api/push/diagnostics",
+  );
+  return result.diagnostic;
 }
 
 export async function schedulePushTest(

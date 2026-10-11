@@ -423,6 +423,7 @@ test("QR checkout sends n8n webhook", async () => {
     assert.equal(payload.event, "checkout.completed");
     assert.equal(payload.checkout.source, "qr");
     assert.equal(payload.room.number, "109");
+    assert.equal(database.data.diagnostics["checkout-push:hotelA"].eventSource, "qr");
   });
 });
 
@@ -440,6 +441,7 @@ test("manual checkout sends n8n webhook", async () => {
     assert.equal(result.duplicate, false);
     assert.equal(calls.length, 1);
     assert.equal(parseWebhookCall(calls[0]).payload.checkout.source, "manual");
+    assert.equal(database.data.diagnostics["checkout-push:hotelA"].eventSource, "manual");
   });
 });
 

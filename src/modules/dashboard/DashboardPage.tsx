@@ -224,6 +224,17 @@ export function DashboardPage({
     };
   }, [canUseHousekeeping, refreshHousekeeping]);
 
+  useEffect(() => {
+    const roomNumber = new URLSearchParams(window.location.search).get("housekeepingRoom");
+    if (!roomNumber || !board) return;
+    const room = [...board.items, ...board.done].find((item) => item.roomNumber === roomNumber);
+    if (!room) return;
+    setDetailRoom(room);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("housekeepingRoom");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [board]);
+
   const checkoutsToday = checkout?.events.filter((event) => isToday(event.timestamp)).length ?? 0;
   const waitingRooms = checkout?.rooms.filter((room) => room.status === "ready_for_cleaning").length ?? 0;
   const detectionsToday = detections.filter((detection) => isToday(detection.detectedAt)).length;

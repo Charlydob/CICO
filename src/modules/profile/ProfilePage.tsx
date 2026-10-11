@@ -1,16 +1,20 @@
-import { Bell, BellOff, LogOut, Save } from "lucide-react";
+import { Bell, BellOff, LogOut, Save, Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { LOCALES, useI18n, type Locale } from "../../i18n";
 import {
+  BackendRequestError,
+  getCheckoutPushDiagnostic,
   getPushStatus,
+  sendPushTest,
+  updatePushPreferences,
   updateMyProfile,
+  type CheckoutPushDiagnostic,
   type PushStatus,
 } from "../../services/backendApi";
 import {
   activatePushDevice,
   browserSupportsWebPush,
-  deactivatePushDevice,
   getCurrentBrowserSubscription,
   shouldShowIosInstallHint,
 } from "../../services/pushClient";
@@ -27,16 +31,20 @@ export function ProfilePage() {
   const [busy, setBusy] = useState("");
   const [pushStatus, setPushStatus] = useState<PushStatus>();
   const [currentEndpoint, setCurrentEndpoint] = useState("");
+  const [pushTestResult, setPushTestResult] = useState("");
+  const [pushDiagnostic, setPushDiagnostic] = useState<CheckoutPushDiagnostic | null>(null);
   const membership = session?.memberships.find((item) => item.tenantId === activeTenantId);
   const activeTenant = session?.tenants.find((tenant) => tenant.id === activeTenantId);
   const role = membership?.role || (session?.isPlatformAdmin && activeTenantId ? "platform_admin" : "");
   const alias = cleanDisplayName(membership?.alias);
-  const pushActive = Boolean(
+  const subscriptionActive = Boolean(
     currentEndpoint &&
       pushStatus?.subscriptions.some(
         (subscription) => subscription.endpoint === currentEndpoint && !subscription.disabledAt,
       ),
   );
+  const pushActive = subscriptionActive && Boolean(pushStatus?.preference?.enabled);
+  const canViewPushDiagnostics = role === "platform_admin" || role === "tenant_admin";
 
   const displayName = useMemo(
     () => alias || user?.username || user?.displayName || user?.email || "",
@@ -63,7 +71,16 @@ export function ProfilePage() {
 
   useEffect(() => {
     void refreshPush().catch(() => undefined);
-  }, [refreshPush]);
+    setPushTestResult("");
+  }, [activeTenantId, refreshPush]);
+
+  useEffect(() => {
+    if (!canViewPushDiagnostics) {
+      setPushDiagnostic(null);
+      return;
+    }
+    void getCheckoutPushDiagnostic().then(setPushDiagnostic).catch(() => setPushDiagnostic(null));
+  }, [activeTenantId, canViewPushDiagnostics]);
 
   async function saveProfile() {
     setBusy("profile");
@@ -84,7 +101,7 @@ export function ProfilePage() {
     setNotice("");
     try {
       if (pushActive) {
-        await deactivatePushDevice();
+        await updatePushPreferences({ enabled: false });
       } else {
         await activatePushDevice();
       }
@@ -92,6 +109,36 @@ export function ProfilePage() {
       setNotice(t("saved"));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not update notifications.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function testNotifications() {
+    if (!currentEndpoint) {
+      setPushTestResult("Este dispositivo no tiene una suscripción Web Push activa.");
+      return;
+    }
+    setBusy("push-test");
+    setPushTestResult("");
+    try {
+      const result = await sendPushTest(currentEndpoint);
+      setPushTestResult(
+        `Proveedor aceptó el envío${result.httpStatus ? ` (HTTP ${result.httpStatus})` : ""}. ` +
+          "Esto no confirma que la notificación se haya mostrado en el iPhone.",
+      );
+      await refreshPush();
+    } catch (error) {
+      if (error instanceof BackendRequestError) {
+        const status = Number(error.payload?.httpStatus || error.status) || undefined;
+        const reason = String(error.payload?.providerReason || error.payload?.error || error.message);
+        setPushTestResult(
+          `Proveedor rechazó el envío${status ? ` (HTTP ${status})` : ""}: ${reason}`,
+        );
+      } else {
+        setPushTestResult(error instanceof Error ? error.message : "No se pudo probar Web Push.");
+      }
+      await refreshPush().catch(() => undefined);
     } finally {
       setBusy("");
     }
@@ -150,10 +197,44 @@ export function ProfilePage() {
           ) : !browserSupportsWebPush() ? (
             <p>Web Push unavailable.</p>
           ) : (
-            <button type="button" onClick={() => void toggleNotifications()} disabled={busy !== ""}>
-              {pushActive ? <BellOff size={16} /> : <Bell size={16} />}
-              {pushActive ? t("deactivateNotifications") : t("activateNotifications")}
-            </button>
+            <>
+              <button type="button" onClick={() => void toggleNotifications()} disabled={busy !== "" || !activeTenantId}>
+                {pushActive ? <BellOff size={16} /> : <Bell size={16} />}
+                {pushActive ? t("deactivateNotifications") : t("activateNotifications")}
+              </button>
+              {subscriptionActive && activeTenantId && (
+                <button type="button" onClick={() => void testNotifications()} disabled={busy !== ""}>
+                  <Send size={16} /> Probar notificación
+                </button>
+              )}
+              {pushTestResult && <p>{pushTestResult}</p>}
+            </>
+          )}
+          {canViewPushDiagnostics && pushDiagnostic && (
+            <details className="collapsible-panel">
+              <summary>Último diagnóstico de checkout</summary>
+              <div className="profile-meta-grid">
+                <span>Intento</span><strong>{new Date(pushDiagnostic.attemptedAt).toLocaleString()}</strong>
+                <span>Hotel / habitación</span><strong>{pushDiagnostic.hotelName} · {pushDiagnostic.roomNumber}</strong>
+                <span>Evento</span><strong>{pushDiagnostic.eventSource} · {pushDiagnostic.eventId}</strong>
+                <span>Estado</span><strong>{pushDiagnostic.status}</strong>
+                <span>Destinatarios</span><strong>{pushDiagnostic.eligibleRecipients}</strong>
+                <span>Suscripciones activas</span><strong>{pushDiagnostic.activeSubscriptions}</strong>
+                <span>Suscripciones desactivadas</span><strong>{pushDiagnostic.disabledSubscriptions}</strong>
+                <span>Destinatarios sin suscripción</span><strong>{pushDiagnostic.missingSubscriptions}</strong>
+                <span>Aceptadas por proveedor</span><strong>{pushDiagnostic.acceptedByProvider}</strong>
+                <span>Rechazadas</span><strong>{pushDiagnostic.rejectedByProvider}</strong>
+              </div>
+              {pushDiagnostic.results.map((result, index) => (
+                <p key={result.subscriptionId || index}>
+                  Suscripción {index + 1}: {result.status}
+                  {result.httpStatus ? ` · HTTP ${result.httpStatus}` : ""}
+                  {result.providerReason ? ` · ${result.providerReason}` : ""}
+                  {result.error ? ` · ${result.error}` : ""}
+                </p>
+              ))}
+              <small>“Aceptada” confirma la respuesta del proveedor, no la visualización en el iPhone.</small>
+            </details>
           )}
         </div>
       </section>
