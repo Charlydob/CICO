@@ -24,7 +24,7 @@ function routeFromPath(): AppRoute {
   }
 
   if (path.startsWith("/housekeeping")) {
-    return "housekeeping";
+    return "dashboard";
   }
 
   if (path.startsWith("/checkout")) {
@@ -104,7 +104,14 @@ function PrivateApp() {
   const activeTenant = session?.tenants.find((tenant) => tenant.id === activeTenantId);
 
   useEffect(() => {
-    const handler = () => setRoute(routeFromPath());
+    const handler = () => {
+      const legacyHousekeeping = window.location.pathname.match(/^(\/t\/[^/]+)?\/housekeeping(?:\/.*)?$/);
+      if (legacyHousekeeping) {
+        window.history.replaceState({}, "", legacyHousekeeping[1] || "/");
+      }
+      setRoute(routeFromPath());
+    };
+    handler();
     window.addEventListener("popstate", handler);
     return () => window.removeEventListener("popstate", handler);
   }, []);

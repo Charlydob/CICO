@@ -388,9 +388,7 @@ async function requestPublicJson<T>(path: string, init?: RequestInit): Promise<T
 }
 
 export async function getAuthSession(): Promise<AuthSession> {
-  const session = await requestJson<AuthSession>("/api/auth/session");
-  setSelectedTenantId(session.activeTenantId);
-  return session;
+  return requestJson<AuthSession>("/api/auth/session");
 }
 
 export async function loginWithPassword(email: string, password: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   loginWithPassword,
   logoutSession,
@@ -32,16 +32,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activeTenantId, setActiveTenant] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const sessionRequest = useRef(0);
 
-  async function refreshSession() {
-    setSelectedTenantSlug(tenantSlugFromPath());
+  async function loadSession(explicitTenantId?: { value?: string }) {
+    const requestId = ++sessionRequest.current;
+    if (explicitTenantId) {
+      setSelectedTenantId(explicitTenantId.value);
+      setSelectedTenantSlug(undefined);
+    } else {
+      setSelectedTenantId(undefined);
+      setSelectedTenantSlug(tenantSlugFromPath());
+    }
     const next = await getAuthSession();
+    if (requestId !== sessionRequest.current) return;
     const tenantId = next.activeTenantId || undefined;
     setSession(next);
     setError("");
     setActiveTenant(tenantId);
     setSelectedTenantId(tenantId);
     setSelectedTenantSlug(undefined);
+  }
+
+  async function refreshSession() {
+    await loadSession();
   }
 
   useEffect(() => {
@@ -79,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSelectedTenantSlug(undefined);
         setSelectedTenantId(nextTenantId);
         setActiveTenant(nextTenantId);
-        await refreshSession();
+        await loadSession({ value: nextTenantId });
       },
       refreshSession,
     }),

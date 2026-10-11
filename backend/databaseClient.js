@@ -441,8 +441,8 @@ export function createDatabaseClient() {
       };
     },
 
-    async registerCheckoutForCurrentCycle(input) {
-      const result = await prisma.$transaction(async (tx) => {
+    async registerCheckoutForCurrentCycle(input, transaction) {
+      const execute = async (tx) => {
         await lockOccupancyCycle(tx, input.tenantId, input.roomId);
 
         const room = await tx.room.findUnique({ where: { id: input.roomId } });
@@ -457,6 +457,18 @@ export function createDatabaseClient() {
             consumedAt: null,
           },
         });
+
+        if (
+          !current &&
+          input.suppressIfRoomPending &&
+          ["ready_for_cleaning", "cleaning"].includes(room.status)
+        ) {
+          const duplicateEvent = await tx.checkoutEvent.findFirst({
+            where: { tenantId: input.tenantId, roomId: input.roomId },
+            orderBy: { timestamp: "desc" },
+          });
+          return { duplicate: true, event: duplicateEvent, room };
+        }
 
         if (current && input.occupancyCycleId && current.id !== input.occupancyCycleId) {
           throw lifecycleError("This checkout page is no longer valid.", 409, "STALE_CHECKOUT_ATTEMPT");
@@ -568,7 +580,10 @@ export function createDatabaseClient() {
             room,
           };
         }
-      });
+      };
+      const result = transaction
+        ? await execute(transaction)
+        : await prisma.$transaction(execute);
 
       return normalizeForRead(result);
     },

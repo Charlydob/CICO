@@ -345,7 +345,7 @@ export function DashboardPage({
       <div className="module-title compact-title">
         <div>
           <h1>{focusHousekeeping ? t("housekeeping") : t("today")}</h1>
-          <p>{board?.tenant.name || status?.reservationSource || ""}</p>
+          <p>{board?.tenant.name || (status?.reservationSource === "demo" ? "" : status?.reservationSource) || ""}</p>
         </div>
         <button type="button" className="icon-button" onClick={() => void refreshHousekeeping()} aria-label={t("refresh")}>
           <RefreshCw size={17} />
@@ -368,7 +368,7 @@ export function DashboardPage({
             <span aria-hidden="true">P</span><strong>{detectionsToday}</strong><span>{t("parkingToday")}</span>
           </button>
         )}
-        {visibleWidgets.reservations && (
+        {visibleWidgets.reservations && status && status.reservationSource !== "demo" && (
           <button type="button" className="stat-item compact-kpi">
             <span aria-hidden="true">R</span><strong>{status?.reservationsLoaded ?? 0}</strong><span>{t("currentReservations")}</span>
           </button>

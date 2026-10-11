@@ -115,6 +115,17 @@ function createFakeDatabase(initial = {}) {
           cycle.tenantId === input.tenantId && cycle.roomId === input.roomId && !cycle.consumedAt,
       );
 
+      if (
+        !current &&
+        input.suppressIfRoomPending &&
+        ["ready_for_cleaning", "cleaning"].includes(room.status)
+      ) {
+        const duplicateEvent = Object.values(data.checkoutEvents)
+          .filter((event) => event.tenantId === input.tenantId && event.roomId === input.roomId)
+          .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())[0];
+        return { duplicate: true, event: duplicateEvent, room };
+      }
+
       if (current && input.occupancyCycleId && current.id !== input.occupancyCycleId) {
         const error = new Error("This checkout page is no longer valid.");
         error.statusCode = 409;
@@ -522,6 +533,32 @@ test("duplicate checkout does not send another n8n webhook", async () => {
 
     assert.equal(first.duplicate, false);
     assert.equal(second.duplicate, true);
+    assert.equal(calls.length, 1);
+  });
+});
+
+test("repeated RFID after its debounce window remains idempotent for the occupancy cycle", async () => {
+  const calls = [];
+  const database = createNotificationDatabase();
+  const room = await createRoom(database, "hotelA", { number: "204", status: "occupied" });
+
+  await withN8nCheckoutWebhook(async (...args) => {
+    calls.push(args);
+    return { ok: true, status: 200 };
+  }, async () => {
+    const first = await registerCheckout(database, "hotelA", room.id, "rfid", {
+      suppressIfRoomPending: true,
+      sourceIdentifier: "reading-1",
+    });
+    const repeated = await registerCheckout(database, "hotelA", room.id, "rfid", {
+      suppressIfRoomPending: true,
+      sourceIdentifier: "reading-2",
+    });
+
+    assert.equal(first.duplicate, false);
+    assert.equal(repeated.duplicate, true);
+    assert.equal(Object.values(database.data.checkoutEvents).length, 1);
+    assert.equal(database.data.rooms[room.id].status, "ready_for_cleaning");
     assert.equal(calls.length, 1);
   });
 });

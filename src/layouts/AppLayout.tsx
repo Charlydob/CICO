@@ -114,7 +114,6 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
     if (activeTenantRole === "staff") {
       return [
         { route: "dashboard" as AppRoute, label: t("home") },
-        { route: "housekeeping" as AppRoute, label: t("housekeeping") },
         { route: "profile" as AppRoute, label: t("profile") },
       ];
     }
@@ -122,7 +121,6 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
     if (activeTenantRole === "manager") {
       return [
         { route: "dashboard" as AppRoute, label: t("home") },
-        { route: "housekeeping" as AppRoute, label: t("housekeeping") },
         { route: enabledModules.checkout ? "checkout" as AppRoute : "dashboard" as AppRoute, label: t("operations") },
         { route: "profile" as AppRoute, label: t("profile") },
       ];
@@ -205,7 +203,6 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
           {activeTenantId && (
             <>
               {navButton("dashboard", t("dashboard"))}
-              {navButton("housekeeping", t("housekeeping"))}
               <span>{t("operations")}</span>
               {enabled.some((module) => module.id === "parking") && navButton("parking", t("parking"))}
               {enabled.some((module) => module.id === "checkout") && navButton("checkout", t("checkout"))}

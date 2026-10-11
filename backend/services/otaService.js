@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { sendRfidReturnPush } from "./webPushService.js";
+import {
+  dispatchCheckoutNotifications,
+  registerCheckout,
+} from "./checkoutService.js";
 import {
   ACTIVE_STATES,
   TERMINAL_STATES,
@@ -110,7 +113,11 @@ export function publicRelease(release) {
   const { storagePath, ...safe } = release;
   return safe;
 }
-export function createOtaService(prisma, storage, { database } = {}) {
+export function createOtaService(
+  prisma,
+  storage,
+  { database, checkoutNotifier = dispatchCheckoutNotifications } = {},
+) {
   async function withDevice(id, fn, authenticated) {
     return prisma.$transaction(
       async (tx) => fn(tx, await lockDevice(tx, id, authenticated)),
@@ -886,8 +893,8 @@ export function createOtaService(prisma, storage, { database } = {}) {
     },
     async ingestEvents(device, body) {
       const events = deviceEvents(body);
-      const notifications = await prisma.$transaction(async(tx)=>{
-        const queuedNotifications=[];
+      const registeredCheckouts = await prisma.$transaction(async(tx)=>{
+        const queuedCheckouts=[];
         // Serialize event batches per device so simultaneous polls cannot both
         // create a return before either one can observe the other reading.
         if(typeof tx.$queryRaw==="function")
@@ -924,30 +931,39 @@ export function createOtaService(prisma, storage, { database } = {}) {
                     ],
                   }})
                 : null;
-              const validReturn=Boolean(key.authorized&&key.active&&tenant&&room&&!duplicate);
+              const authorizedRoom=Boolean(key.authorized&&key.active&&tenant&&room);
               const reading=await tx.deviceRfidReading.create({data:{
                 deviceId:device.id,tenantId:tenant?.id||null,keyId:key.id,uid,
                 keyName:key.name,room:key.room,hotelName:tenant?.name||"",
                 authorized:key.authorized,active:key.active,duplicate,
-                eventType:validReturn?"RETURN_RECORDED":"RFID_READ",
-                result:duplicate?"DUPLICATE_SUPPRESSED":validReturn?"AUTHORIZED_RETURN_RECORDED":
+                eventType:"RFID_READ",
+                result:duplicate?"DUPLICATE_SUPPRESSED":authorizedRoom?"AUTHORIZED_RETURN_PENDING":
                   key.authorized&&key.active?"AUTHORIZED_ROOM_NOT_LINKED":"NOT_AUTHORIZED",
                 diagnostic:event.detail||null,deviceUptimeMs:event.uptimeMs,
               }});
-              if(validReturn) {
-                const checkoutEvent=await tx.checkoutEvent.create({data:{
-                  tenantId:tenant.id,roomId:room.id,source:"rfid_return",
-                  sourceIdentifier:reading.id,status:"recorded_unconfirmed",
+              if(authorizedRoom&&!duplicate) {
+                if(!database)
+                  throw new Error("RFID checkout processing requires the application database service.");
+                const checkout=await registerCheckout(database,tenant.id,room.id,"rfid",{
+                  transaction:tx,deferNotifications:true,suppressIfRoomPending:true,
+                  sourceIdentifier:reading.id,
                   metadata:{
                     deviceId:device.id,deviceName:device.name,uid,
                     keyName:key.name,roomSnapshot:key.room,hotelSnapshot:tenant.name,
-                    physicalConfirmation:false,rule:"authorized_rfid_read",
+                    rfidReadingId:reading.id,physicalConfirmation:true,
+                    rule:"authorized_active_rfid_read",
                   },
-                }});
-                await tx.deviceRfidReading.update({
-                  where:{id:reading.id},data:{checkoutEventId:checkoutEvent.id},
                 });
-                queuedNotifications.push({tenant,room,event:checkoutEvent});
+                const readingPatch=checkout.duplicate
+                  ? {duplicate:true,result:"DUPLICATE_SUPPRESSED"}
+                  : {eventType:"RETURN_RECORDED",result:"AUTHORIZED_RETURN_RECORDED"};
+                await tx.deviceRfidReading.update({
+                  where:{id:reading.id},data:{
+                    ...readingPatch,
+                    ...(checkout.event?.id?{checkoutEventId:checkout.event.id}:{}),
+                  },
+                });
+                if(!checkout.duplicate) queuedCheckouts.push(checkout);
               }
             }
           } else if(event.type==="CONFIG_REJECTED"||event.type==="CONFIG_STALE_REJECTED") {
@@ -958,11 +974,11 @@ export function createOtaService(prisma, storage, { database } = {}) {
           where:{deviceId:device.id},orderBy:{createdAt:"desc"},skip:999,select:{createdAt:true},
         });
         if(cutoff) await tx.deviceEvent.deleteMany({where:{deviceId:device.id,createdAt:{lt:cutoff.createdAt}}});
-        return queuedNotifications;
+        return queuedCheckouts;
       });
-      if(database) for(const notification of notifications)
-        void sendRfidReturnPush(database,notification).catch((error)=>
-          console.warn(`[WebPush] RFID return notification failed: ${error instanceof Error?error.message:"unknown error"}`),
+      for(const checkout of registeredCheckouts)
+        void checkoutNotifier(database,checkout).catch((error)=>
+          console.warn(`[Notifications] RFID checkout notification failed: ${error instanceof Error?error.message:"unknown error"}`),
         );
       return { accepted: true, count: events.length };
     },

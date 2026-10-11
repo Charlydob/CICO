@@ -185,8 +185,11 @@ test("RFID ingestion records chronological reads, one honest return and suppress
   };
   const state={
     key:{id:"55555555-5555-4555-8555-555555555555",deviceId,uid:"AABBCCDD",name:"Llave 204",room:"Habitación 204",authorized:true,active:true},
+    room:{id:"77777777-7777-4777-8777-777777777777",tenantId:device.tenantId,number:"204",name:"Habitación 204",active:true,status:"occupied"},
+    cycle:{id:"88888888-8888-4888-8888-888888888888",tenantId:device.tenantId,roomId:"77777777-7777-4777-8777-777777777777",consumedAt:null},
     readings:[],checkouts:[],deviceEvents:[],
   };
+  let tenantRoomQuery;
   const tx={
     deviceEvent:{
       createMany:async({data})=>state.deviceEvents.push(...data),
@@ -202,30 +205,99 @@ test("RFID ingestion records chronological reads, one honest return and suppress
     },
     deviceRfidReading:{
       findFirst:async({where})=>state.readings.filter((item)=>item.uid===where.uid).at(-1)||null,
-      create:async({data})=>{const reading={id:`reading-${state.readings.length+1}`,createdAt:new Date(),checkoutEventId:null,...data};state.readings.push(reading);return reading;},
+      create:async({data})=>{const reading={id:`reading-${state.readings.length+1}`,createdAt:new Date(Date.now()-5000),checkoutEventId:null,...data};state.readings.push(reading);return reading;},
       update:async({where,data})=>Object.assign(state.readings.find((item)=>item.id===where.id),data),
     },
     tenant:{findUnique:async()=>({id:device.tenantId,name:"Hotel Prueba",slug:"hotel-prueba"})},
-    room:{findFirst:async()=>({id:"77777777-7777-4777-8777-777777777777",number:"204",name:"Habitación 204"})},
-    checkoutEvent:{create:async({data})=>{const event={id:`checkout-${state.checkouts.length+1}`,timestamp:new Date(),...data};state.checkouts.push(event);return event;}},
+    room:{
+      findFirst:async({where})=>{tenantRoomQuery=where;return state.room;},
+      findUnique:async()=>state.room,
+      update:async({data})=>Object.assign(state.room,data),
+    },
     device:{update:async()=>device},
   };
+  let notifications=0;
   const prisma={$transaction:async(callback)=>callback(tx)};
-  const service=createOtaService(prisma,{});
+  const database={
+    getTenantRecord:async()=>{throw new Error("RFID checkout must use the existing Prisma transaction.");},
+    registerCheckoutForCurrentCycle:async(input,transaction)=>{
+      assert.equal(transaction,tx);
+      if(state.cycle.consumedAt)
+        return {duplicate:true,event:state.checkouts[0],room:state.room};
+      const timestamp=new Date();
+      const event={id:`checkout-${state.checkouts.length+1}`,timestamp,status:"registered",...input};
+      state.checkouts.push(event);
+      state.cycle.consumedAt=timestamp;
+      Object.assign(state.room,{status:"ready_for_cleaning",lastCheckoutAt:timestamp,lastCheckoutSource:input.source});
+      return {duplicate:false,event,room:state.room};
+    },
+    getRecord:async(collection)=>collection==="tenants"
+      ? {id:device.tenantId,name:"Hotel Prueba",slug:"hotel-prueba"}
+      : undefined,
+    listRecords:async()=>[],
+    listTenantRecords:async()=>state.checkouts,
+  };
+  const service=createOtaService(prisma,{}, {
+    database,
+    checkoutNotifier:async()=>{notifications+=1;},
+  });
   await service.ingestEvents(device,{events:[
     {type:"RFID_READ",detail:"AABBCCDD authorized",uptime_ms:1000},
     {type:"RFID_READ",detail:"AABBCCDD authorized",uptime_ms:1050},
+    {type:"RFID_READ",detail:"F0000000F0 unknown",uptime_ms:1100},
   ]});
-  assert.equal(state.readings.length,2);
+  assert.equal(state.readings.length,3);
   assert.equal(state.readings[0].eventType,"RETURN_RECORDED");
   assert.equal(state.readings[0].result,"AUTHORIZED_RETURN_RECORDED");
   assert.equal(state.readings[1].eventType,"RFID_READ");
   assert.equal(state.readings[1].result,"DUPLICATE_SUPPRESSED");
+  assert.equal(state.readings[2].result,"NOT_AUTHORIZED");
+  assert.equal(notifications,1);
+  assert.equal(tenantRoomQuery.tenantId,device.tenantId);
   assert.equal(state.checkouts.length,1);
-  assert.equal(state.checkouts[0].status,"recorded_unconfirmed");
-  assert.equal(state.checkouts[0].metadata.physicalConfirmation,false);
+  assert.equal(state.checkouts[0].status,"registered");
+  assert.equal(state.checkouts[0].source,"rfid");
+  assert.equal(state.checkouts[0].metadata.physicalConfirmation,true);
+  assert.equal(state.room.status,"ready_for_cleaning");
+  assert.equal(state.cycle.consumedAt instanceof Date,true);
+  assert.equal(state.readings[1].result,"DUPLICATE_SUPPRESSED");
   assert.equal(state.readings[0].hotelName,"Hotel Prueba");
   assert.equal(state.readings[0].room,"Habitación 204");
+});
+
+test("authorized RFID without a valid room is diagnostic-only", async () => {
+  const device={
+    id:deviceId,deviceId:"checkoutbox-test",name:"Checkout recepción",
+    tenantId:"44444444-4444-4444-8444-444444444444",
+    hardwareModel:"ESP32_DEVKIT_CHECKOUT_V1",desiredConfig:{duplicateRfidMs:1500},
+  };
+  const readings=[];
+  const tx={
+    deviceEvent:{createMany:async()=>{},findFirst:async()=>null,deleteMany:async()=>({count:0})},
+    deviceRfidKey:{upsert:async()=>({
+      id:"55555555-5555-4555-8555-555555555555",uid:"C000007C00",name:"Llave sin habitación",
+      room:"999",authorized:true,active:true,
+    })},
+    deviceRfidReading:{
+      findFirst:async()=>null,
+      create:async({data})=>{const reading={id:"reading-missing-room",createdAt:new Date(),...data};readings.push(reading);return reading;},
+      update:async()=>{throw new Error("A missing room must never register checkout.");},
+    },
+    tenant:{findUnique:async()=>({id:device.tenantId,name:"Hotel Prueba"})},
+    room:{findFirst:async()=>null},
+    device:{update:async()=>device},
+  };
+  let checkoutCalls=0;
+  const database={registerCheckoutForCurrentCycle:async()=>{checkoutCalls+=1;}};
+  const service=createOtaService({$transaction:async(callback)=>callback(tx)},{},{database});
+
+  await service.ingestEvents(device,{events:[
+    {type:"RFID_READ",detail:"C000007C00 authorized",uptime_ms:1000},
+  ]});
+
+  assert.equal(checkoutCalls,0);
+  assert.equal(readings[0].result,"AUTHORIZED_ROOM_NOT_LINKED");
+  assert.equal(readings[0].checkoutEventId,undefined);
 });
 
 test("device hotel reassignment is audited without rewriting historical RFID context", async () => {

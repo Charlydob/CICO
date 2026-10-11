@@ -642,9 +642,11 @@ export async function registerCheckout(database, tenantId, roomId, source, optio
   }
 
   const sourceIdentifier = cleanString(options.sourceIdentifier);
-  const room = await database.getTenantRecord("rooms", tenantId, roomId);
+  const room = options.transaction
+    ? await options.transaction.room.findUnique({ where: { id: roomId } })
+    : await database.getTenantRecord("rooms", tenantId, roomId);
 
-  if (!isRoomAvailable(room)) {
+  if (!isRoomAvailable(room) || room.tenantId !== tenantId) {
     const error = new Error("Room not found.");
     error.statusCode = 404;
     throw error;
@@ -653,17 +655,32 @@ export async function registerCheckout(database, tenantId, roomId, source, optio
   let result;
 
   if (database.registerCheckoutForCurrentCycle) {
-    result = await database.registerCheckoutForCurrentCycle({
-      id: randomUUID(),
-      tenantId,
-      roomId,
-      occupancyCycleId: options.occupancyCycleId,
-      source,
-      sourceIdentifier,
-      metadata: options.metadata || {},
-    });
+    result = await database.registerCheckoutForCurrentCycle(
+      {
+        id: randomUUID(),
+        tenantId,
+        roomId,
+        occupancyCycleId: options.occupancyCycleId,
+        suppressIfRoomPending: options.suppressIfRoomPending,
+        source,
+        sourceIdentifier,
+        metadata: options.metadata || {},
+      },
+      options.transaction,
+    );
   } else {
     const currentCycle = await findCurrentOccupancyCycle(database, tenantId, roomId);
+
+    if (
+      !currentCycle &&
+      options.suppressIfRoomPending &&
+      ["ready_for_cleaning", "cleaning"].includes(room.status)
+    ) {
+      const duplicateEvent = (await database.listTenantRecords("checkoutEvents", tenantId))
+        .filter((event) => event.roomId === roomId)
+        .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())[0];
+      return { duplicate: true, event: duplicateEvent, room };
+    }
 
     if (currentCycle && options.occupancyCycleId && currentCycle.id !== options.occupancyCycleId) {
       throw checkoutError("This checkout page is no longer valid.", 409, "STALE_CHECKOUT_ATTEMPT");
@@ -750,6 +767,22 @@ export async function registerCheckout(database, tenantId, roomId, source, optio
     return result;
   }
 
+  if (!options.deferNotifications) {
+    await dispatchCheckoutNotifications(database, result).catch((error) => {
+      const message = error instanceof Error ? error.message : "unknown error";
+      console.warn(`[Notifications] checkout notification setup failed: ${message}`);
+    });
+  }
+
+  return {
+    duplicate: false,
+    event: result.event,
+    room: result.room,
+  };
+}
+
+export async function dispatchCheckoutNotifications(database, result) {
+  const tenantId = result.event.tenantId;
   const [tenant, tenantSettings, housekeepingBoard] = await Promise.all([
     database.getRecord("tenants", tenantId),
     getTenantSettings(database, tenantId),
