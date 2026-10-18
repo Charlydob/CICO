@@ -681,7 +681,7 @@ test(
             options,
           );
           const provisioned = JSON.parse(await readFile(output, "utf8"));
-          assert.equal((await stat(output)).mode & 0o777, 0o600);
+          if(process.platform!=="win32") assert.equal((await stat(output)).mode & 0o777, 0o600);
           assert.equal(provisioned.device_id, device.deviceId);
           assert.equal(result.stdout.includes(provisioned.token), false);
           assert.equal(result.stderr.includes(provisioned.token), false);

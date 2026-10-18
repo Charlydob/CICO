@@ -404,6 +404,8 @@ enum OtaStatus {
 }
 
 model Device {
+  hookboxDesignOverride HookboxDeviceDesign?
+  hookboxTraces HookboxProtocolTrace[]
   hookboxOperations HookboxOperation[]
   uiDesiredVersion String? @map("ui_desired_version")
   uiAppliedVersion String? @map("ui_applied_version")
@@ -627,6 +629,7 @@ model HookboxHotel {
   @@map("hookbox_hotels")
 }
 model HookboxDesign {
+  deviceId String? @map("device_id") @db.Uuid
   tenant Tenant @relation(fields:[tenantId], references:[id], onDelete:Cascade)
   id String @id @default(uuid()) @db.Uuid
   tenantId String @map("tenant_id") @db.Uuid
@@ -671,4 +674,30 @@ model HookboxClaim {
   operationId String @map("operation_id") @db.Uuid
   @@unique([tenantId,reservationId,room])
   @@map("hookbox_claims")
+}
+
+model HookboxDeviceDesign {
+ deviceId String @id @map("device_id") @db.Uuid
+ tenantId String @map("tenant_id") @db.Uuid
+ device Device @relation(fields:[deviceId],references:[id],onDelete:Cascade)
+ draft Json
+ mapping Json @default("[]")
+ revision Int @default(0)
+ publishedVersion String? @map("published_version")
+ updatedAt DateTime @updatedAt @map("updated_at")
+ @@index([tenantId])
+ @@map("hookbox_device_designs")
+}
+model HookboxProtocolTrace {
+ id String @id @default(uuid()) @db.Uuid
+ tenantId String @map("tenant_id") @db.Uuid
+ deviceId String @map("device_id") @db.Uuid
+ device Device @relation(fields:[deviceId],references:[id],onDelete:Cascade)
+ path String
+ status Int
+ request Json
+ response Json
+ createdAt DateTime @default(now()) @map("created_at")
+ @@index([tenantId,deviceId,createdAt])
+ @@map("hookbox_protocol_traces")
 }

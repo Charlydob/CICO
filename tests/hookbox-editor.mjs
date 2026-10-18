@@ -65,6 +65,15 @@ await page
 await page.getByText("Borrador guardado", { exact: true }).waitFor();
 assert.equal(draft.hotelName, "Hotel Prueba");
 const canvas = page.locator("canvas");
+const pixels=()=>canvas.evaluate(c=>c.toDataURL());
+const before=await pixels();
+await page.getByLabel("Plantilla").selectOption("classic-left");
+await page.waitForTimeout(80);assert.notEqual(await pixels(),before,'template updates canvas immediately');
+await page.getByLabel("Plantilla").selectOption("classic-right");
+for(const screen of ['waiting','authorized','error','delivery','done']){await page.getByRole('button',{name:screen,exact:true}).click();await page.waitForTimeout(30);assert.ok((await pixels()).length>1000);}
+await page.getByLabel('Configuración de pantalla',{exact:true}).selectOption('panel');
+await page.getByLabel('Nombre del hotel').waitFor();
+await page.getByLabel('Configuración de pantalla',{exact:true}).selectOption('');
 await page.getByRole("button", { name: "form", exact: true }).click();
 async function tap(x, y) {
   const r = await canvas.boundingBox();

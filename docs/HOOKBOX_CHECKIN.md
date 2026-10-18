@@ -1,148 +1,72 @@
-# Hookbox Check-in y diseño multi-hotel — implementación local
+# Hookbox + CICO: software integrado
 
-## Estado de la entrega
+## Uso
 
-Se ha implementado una base integrada y comprobada en software para CICO y CrowPanel. **No es una versión certificada para vender o instalar con 25 solenoides reales.** La build de check-in suministrada es MOCK; la variante física conservada sigue limitada al banco de un gancho. No se ha instalado firmware, desplegado CICO ni enviado comandos a dispositivos.
+En CICO, seleccionar el hotel y abrir **Hookbox → Diseño de pantalla**. El selector permite editar el diseño general del hotel o una pantalla concreta. Una pantalla sin publicación propia sigue el diseño general. «Usar diseño general del hotel» elimina su excepción; conserva el historial. Cambiar de hotel reinicia el editor y las consultas permanecen restringidas al hotel autorizado.
 
-Código: dos copias de trabajo independientes, basadas en CICO `6d75253` y firmware `e50fd08`, en ramas `feature/hookbox-checkin-design`. Los repositorios originales, sus cambios pendientes y el OTA existente se conservan.
+Modificar textos, idiomas, colores, plantilla, QR e imágenes cambia inmediatamente el lienzo de 800 × 480. Las pantallas de inicio, identificación/teclado, búsqueda, verificación, habitación autorizada, entrega, final y error comparten geometría y métricas Montserrat con LVGL. La simulación interactiva permite recorrer el flujo; nunca acciona un dispositivo. La búsqueda y entrega de la preview tienen transiciones locales, y los tiempos de reposo/retorno siguen el tema.
 
-## Qué está implementado
+Guardar borrador utiliza una revisión para detectar ediciones concurrentes. Publicar crea una versión inmutable con recursos y mapa de habitaciones. Restaurar carga una versión y su mapa para revisión y nueva publicación. Cada dispositivo informa versión deseada, aplicada, checksum y rechazo. Una publicación no se declara instalada hasta recibir ACK.
 
-- Sección por hotel **Hookbox → Dispositivos → Diseño de pantalla**, accesible al administrador del hotel y al administrador de plataforma con hotel seleccionado. Acceso también desde la barra móvil.
-- Dos plantillas horizontales 800 × 480, cuatro idiomas, textos editables, colores, nombre, logo PNG/JPG, decoración acotada, QR HTTPS con tres tamaños y posición según plantilla. SVG y fondos a pantalla completa se rechazan expresamente.
-- Conversión de imágenes a RGB565 little endian antes de publicar. Límites: logo 160 × 64, decoración 160 × 96, cada recurso ≤32 KiB y conjunto ≤64 KiB. No se descargan URLs arbitrarias de imágenes en el ESP32.
-- Previsualización interactiva: inicio, selección ID/apellido, formulario, teclado con mayúsculas/acentos/símbolos, verificación, habitación y resultado. Usa geometría compartida, la misma fuente Montserrat y anchos extraídos de los glifos del firmware. El antialiasing del navegador y la codificación del QR pueden variar; no se afirma identidad de píxeles con un panel físico sin comprobarlo.
-- Guardar/restaurar borrador con control de revisión, versiones publicadas inmutables, restauración de una versión como nueva publicación, y versión deseada/aplicada/rechazada por dispositivo.
-- Canal visual autenticado independiente de OTA y de `desiredConfig`/`appliedConfig` del servo/RFID. Descarga JSON y recursos, comprueba tamaño/hash/esquema/fuentes/memoria, guarda dos slots locales, aplica en el hilo LVGL, confirma tras dos segundos de funcionamiento y conserva la versión previa. Si hay un reinicio antes de confirmar, vuelve al slot anterior y bloquea la versión que falló hasta una nueva publicación.
-- UI LVGL nativa; HTTPS/JSON en tarea separada; credenciales existentes y CA del cliente OTA; ningún navegador embebido.
-- Consulta de reserva sin autorización de entrega. Verificación separada exige `authorized`, `identityVerified` y `conditionsSatisfied`. El adaptador falla cerrado sin proveedor configurado.
-- Operaciones con UUID, caducidad de dos minutos, tres intentos de verificación, aislamiento del hotel propietario y bloqueo de fila del dispositivo contra cambios concurrentes de propietario/credenciales.
-- Reclamaciones persistentes por hotel/estancia/habitación antes de iniciar la liberación. Resultados ordenados, reintentos idempotentes de mensajes y bloqueo de resultados contradictorios. No se repiten pulsos tras incertidumbre o reinicio.
-- Cola de 25 ganchos MOCK, de uno en uno, con pausa entre ganchos; diario NVS antes de iniciar y de cada pulso. Conserva el driver Adafruit y HookManager existente. Registros persistentes en DeviceEvent; activación eléctrica, simulación y entrega física se distinguen.
-- Servidor de reservas simulado para el contrato propuesto y simulador de dispositivo de escritorio con configuración persistente. Ninguno pretende ser la API real de Steinbock.
-- Tema piloto opcional con colores y logo obtenidos del portal público. No se impone a otros hoteles.
+El diagnóstico muestra las últimas 50 peticiones/respuestas JSON reales del dispositivo, su ruta, fecha y estado HTTP. Tokens, apellidos, pruebas de identidad, reservas y habitaciones se ocultan **antes** de persistir la traza. Los permisos de hotel también se aplican a esas consultas.
 
-## Qué falta para cerrar el producto
+## Backend y autorización
 
-1. **Backend real de check-in:** acceso a su código/API y acuerdo sobre identidad y condiciones de entrega. Se entregan dos OpenAPI: CICO implementado y adaptador propuesto. El portal público usa formularios; no se ha supuesto una API compatible ni automatizado la búsqueda de huéspedes reales.
-2. **Control físico de 25 salidas:** confirmar placa, cableado, direcciones, alimentación y corriente; integrar y validar la cola nueva con el corte físico dedicado de múltiples ganchos. El corte dedicado existente sólo cubre el banco A0. La UI nueva rechaza liberaciones cuando se compila con hardware real. No hay una variante de check-in físico de 25 ganchos habilitada en esta entrega.
-3. **Pruebas en CrowPanel:** confirmar modelo, flash/PSRAM y firmware instalado por lectura del dispositivo; probar táctil, heap real, brillo, imágenes, reinicios y cortes de alimentación durante cada fase de configuración. Las pruebas host verifican el validador real y la política de commits; el simulador comprueba archivos, pero no sustituye probar LittleFS/NVS en la placa.
-4. **OTA física:** repetir instalación y rollback reales con esta build y confirmar que no interfiere con recursos visuales. Se mantienen código y particiones; compilación y pruebas de protocolo no certifican una actualización sobre un equipo real.
-5. **Entrega física:** no hay sensor de retirada confirmado. Un éxito sólo significa activación eléctrica o MOCK; nunca se marca retirada física.
-6. **Operación de recepción:** una operación incierta conserva sus reclamaciones. La reconciliación requiere revisar estado/eventos y resolver presencialmente; no se incluye un botón de reintento que pueda duplicar una entrega. Falta cerrar el procedimiento administrativo de rearme y recarga de llaves con el modelo físico final.
-7. No se recibieron capturas adjuntas: se utilizó la web pública y la descripción. El logotipo cuadrado original se reduce al espacio disponible; puede sustituirse por una variante horizontal autorizada.
+Backend Node con PostgreSQL/Prisma: endpoints reales, autenticación de dispositivo, sesión y rol de administrador del hotel, HTTPS, comprobación de Origin en escrituras, límites JSON, transacciones, bloqueo por hotel y dispositivo, operaciones caducables y reclamaciones persistentes por estancia/habitación.
 
-## Configuración de CICO para pruebas
+Consultar un apellido o ID devuelve un desafío o un error; nunca autoriza una salida. La verificación exige `authorized:true`, `identityVerified:true`, `conditionsSatisfied:true`, una estancia estable y habitaciones válidas. La publicación fija qué gancho corresponde a cada habitación. Antes del primer pulso, `release/start` crea reclamaciones duraderas. Resultados y finalización admiten reenvíos idempotentes; ni un reinicio ni la caducidad permiten repetir una llave ya reclamada. La incertidumbre detiene la secuencia y exige revisión de recepción.
 
-Usar una copia y una base PostgreSQL desechable. No aplicar estas instrucciones a producción sin revisión y autorización.
+Contratos exactos: `hookbox-openapi.json` (implementado) y `hookbox-provider-openapi.json` (contrato requerido al adaptador externo). `JSON-INTERCAMBIOS-REALES.json` en la entrega contiene intercambios capturados en pruebas HTTP reales con PostgreSQL y núcleo C++ compilado; las salidas eléctricas de esa prueba están simuladas y figuran como tales.
 
-```powershell
-npm ci
-$env:DATABASE_URL = 'postgresql://usuario:password@127.0.0.1:5432/hookbox_lab'
-npx prisma generate
-npx prisma migrate deploy
-npm run build
-```
+## Steinbock y datos externos pendientes
 
-La migración `20261018180000_hookbox_checkin` añade tablas de hoteles/diseños/recursos/operaciones/reclamaciones y cuatro campos `ui_*` a Device. No cambia las tablas ni versiones OTA y no sobrescribe el esquema del servo. Realizar copia de seguridad antes de una futura migración de producción. Para retirar la función, volver al código anterior manteniendo las tablas nuevas; no borrar reclamaciones de operaciones inciertas.
+La página pública `https://checkin.gasthaus-steinbock.ch/guest-login.php?lang=de` ofrece un formulario web. No demuestra que exista una API JSON compatible; no se han enviado datos de huéspedes, sorteado autenticación ni inventado endpoints de Steinbock.
 
-Configurar `APP_ORIGIN` con el origen del frontend, `OTA_PUBLIC_ORIGIN` con HTTPS y la confianza de proxy conforme al despliegue existente. Las rutas nuevas reutilizan la protección de transporte OTA. Para un laboratorio local exclusivamente: `NODE_ENV=test` y `OTA_DEV_ALLOW_HTTP=true`; no habilitar la excepción en producción.
-
-El adaptador se define con una variable de entorno **del servidor**, sin secretos en el diseño:
+El adaptador configurable está implementado y probado contra un servidor de contrato local. Configurar **en el backend** `HOOKBOX_PROVIDERS_JSON`, indexado por UUID del hotel:
 
 ```json
-{
-  "UUID_DEL_HOTEL": {
-    "url": "https://proveedor-autorizado.example/adapter/",
-    "token": "SECRETO_SOLO_EN_SERVIDOR",
-    "mock": false
-  }
-}
+{"UUID_DEL_HOTEL":{"url":"https://adaptador-autorizado.example/","token":"SECRETO_EN_SERVIDOR","mock":false}}
 ```
 
-Guardar ese JSON en `HOOKBOX_PROVIDERS_JSON`. Cada hotel tiene su propia URL/token. El adaptador recibe POST `/lookup` y `/verify`, con token del proveedor, `tenantId` y `operationId`. No configurar la página `guest-login.php` como URL de API: no implementa el contrato entregado.
+El adaptador debe recibir POST `lookup` y `verify` relativos a esa URL, con Bearer y esquema 1. Es nuestro contrato requerido, no una afirmación sobre URLs del hotel. Faltan del operador externo: URL autorizada, autenticación/credenciales, formato real de respuesta, mecanismo de verificación de identidad y condiciones, y un identificador estable y único de estancia. Si su API difiere, el adaptador externo traduce a este contrato. Sin integración configurada se devuelve 503 y no se liberan llaves. La simulación HTTP sólo admite loopback fuera de producción.
 
-Para MOCK local:
+## Firmware físico definitivo
 
-```powershell
-$env:NODE_ENV='test'
-$env:MOCK_HOTEL_ID='UUID_REAL_DEL_HOTEL_DE_PRUEBA'
-$env:MOCK_PROVIDER_TOKEN='SECRETO_LOCAL_DE_PRUEBA'
-node backend/hookbox/mockProvider.js --serve
-```
+Target **crowpanel_checkin_real**, versión **2.6.0**, build **20261018.checkin-real-25**. CrowPanel Elecrow DIS08070H 7 pulgadas V3, ESP32-S3, flash 4 MiB, PSRAM 8 MiB OPI, RGB 800 × 480. Cuatro drivers Adafruit 6318/MCP23017 en 0x20–0x23; ganchos 1–25 corresponden a A0–A7 de las tres primeras placas y A0 de la cuarta. I2C SDA19/SCL20 compartido con táctil, protegido por mutex. No conectar una placa en una dirección ya ocupada.
 
-En otra consola del backend, `HOOKBOX_PROVIDERS_JSON` debe apuntar para ese hotel a `http://127.0.0.1:4319/`, con el mismo token y `mock:true`. El mock escucha sólo en loopback y se prohíbe en producción. ID `MULTI` devuelve habitaciones 101/102 tras código `123456`; otros IDs válidos devuelven 101. Valores `ambiguous`, `insufficient` y `missing` prueban sus estados. Es exclusivamente una fixture.
+El código físico está implementado y compilado. Verifica ACK y lectura de latch de la salida. Una tarea independiente de LVGL/HTTP corta el pulso a 250 ms, con límite lógico de 500 ms y separación mínima de 750 ms. No se permiten dos salidas simultáneas. Fallos de conexión, ON/OFF incierto o emergencia apagan y bloquean nuevos pulsos; OFF fallido se sigue reintentando. Un bus averiado o un MOSFET cortocircuitado no puede garantizarse eléctricamente mediante software: requiere protección de alimentación y validación física.
 
-Crear/asignar el dispositivo `CROWPANEL_7_V3` al hotel mediante administración existente. Usar su aprovisionamiento seguro existente, con `base_url`, `device_id` y token individual. No imprimir ni adjuntar tokens a informes.
+La versión real bloquea entregas y pruebas de la antigua demostración. Sólo la máquina de estados autenticada puede liberar. OTA/reinicio remoto se difieren durante una entrega y bloquean nuevas activaciones antes de instalar. El diario NVS se escribe antes de actuar; después de un reinicio no se repite un pulso incierto. Un resultado `ELECTRICAL_ACTIVATION` confirma orden/latch, nunca retirada física: `physicallyConfirmed:false`.
 
-Elegir el hotel en CICO, abrir Hookbox, configurar habitaciones como `101:1` y `102:25`, cargar el tema piloto o personalizarlo, guardar, revisar y publicar. Comprobar la versión aplicada por cada panel: publicar no significa que ya se haya aplicado.
+Temas independientes de OTA: HTTPS, checksum, límites de recursos, A/B en LittleFS, confirmación diferida y recuperación al tema anterior. No se reformatea contenido desconocido; una partición completamente borrada sí puede inicializarse. Límites reales: logo 160 × 64, decoración 160 × 96, RGB565, 32 KiB por recurso / 64 KiB total. SVG, vídeos y fondos fotográficos de pantalla completa no están soportados. El navegador y LVGL pueden diferir en antialiasing/QR; queda la inspección final en la pantalla física.
 
-## Firmware e instalación preparada
+## OTA preparada, sin ejecutar sobre el dispositivo
 
-```powershell
-pio test -e native
-pio run -e native
-pio run -e native_checkin_simulator
-pio run -e crowpanel_checkin_mock
-pio run -e crowpanel_solenoid_bench
-```
+Se conserva la tabla de 4 MiB: dos slots de aplicación de **1.835.008 bytes**, sin cambio de direcciones. CICO recibe `firmware.bin`, valida cabecera ESP32-S3, tamaño y SHA-256, permite borrador/publicación y asignación explícita. Descargar, verificar SHA y tamaño, escribir al slot inactivo, comprobar salud al arranque y rollback conservan el flujo existente. Nunca subir bootloader, particiones o imagen USB combinada como aplicación OTA.
 
-La build nueva es `crowpanel_checkin_mock`, versión 2.5.0, build `20261018.checkin-design-mock`. El artefacto OTA es únicamente `firmware.bin`; no subir bootloader ni particiones como app. No se cambia la tabla de particiones existente de 4 MiB ni el límite de 1.835.008 bytes por app.
-
-Una partición visual totalmente borrada se inicializa como LittleFS tras verificar todos sus bytes. Un contenido previo no reconocido **no se formatea automáticamente**: registrar `FILESYSTEM_NOT_INITIALIZED`, respaldar/identificar su contenido y preparar la partición en un procedimiento de instalación autorizado. No ejecutar `uploadfs` sobre recursos existentes sin respaldo.
-
-No se ha ejecutado upload, flash, OTA de instalación ni ningún comando de solenoide. La build de banco conservada puede accionar A0 si se instala y se ordena una prueba: requiere tu confirmación antes de hacerlo. No sirve para el nuevo check-in de 25 llaves.
+La consulta de producción del 18/10/2026 mostró **Hookbox Lab**, modelo CROWPANEL_7_V3, versión **2.4.13**, build **20261007.ota-health-recovery-bench**, último contacto **10/10/2026 14:14 UTC**. El código correspondiente incorpora el cliente CICO OTA y la misma tabla; por tanto, ese build soporta la nueva app por diseño. La telemetría está desactualizada y no aporta una lectura actual de particiones: no se puede certificar que ese sea aún el firmware/tabla instalado. No se concluye que sea necesaria una instalación USB. Al reconectar, comprobar versión/build y tamaños de ambos slots en diagnóstico; USB sólo si la placa real carece de cliente compatible o tabla adecuada. No se ha actualizado, reiniciado ni accionado ningún dispositivo.
 
 ## Pruebas reproducibles
 
 ```powershell
-npm test
+# Firmware
+pio test -e native
+pio run -e crowpanel_checkin_real -e crowpanel_checkin_mock -e crowpanel_solenoid_bench -e native_checkin_simulator
+# CICO: usar exclusivamente una PostgreSQL de laboratorio migrada
+npm ci
+npx prisma migrate deploy
 $env:HOOKBOX_TEST_DATABASE_URL=$env:DATABASE_URL
-npm run test:hookbox
+$env:OTA_POSTGRES_TEST_DATABASE_URL=$env:DATABASE_URL
+$env:CHECKOUT_POSTGRES_TEST_DATABASE_URL=$env:DATABASE_URL
+$env:HOOKBOX_NATIVE_EXECUTABLE='RUTA_ABSOLUTA_AL_PROGRAM_NATIVE'
+npm test
+npm run build
 npm run dev -- --port 4321
-# En otra consola, con el navegador de Playwright instalado:
-npx playwright install chromium
 npm run test:hookbox:browser
 ```
 
-Las pruebas PostgreSQL sólo deben apuntar a una base de laboratorio. Crean y eliminan sus propias fixtures. El test de navegador intercepta la API: valida el editor y sus interacciones, mientras las pruebas HTTP separadas usan autenticación y PostgreSQL reales. El simulador de archivos es de escritorio; no acciona hardware.
+El test nativo HTTP ejecuta el núcleo C++ compilado (CheckinSequence, HookManager y PulseSafety) contra rutas autenticadas y PostgreSQL, con proveedor y salidas físicas simulados. No emula la pila TLS/FreeRTOS/LittleFS del chip; éstos se compilan para el ESP32 y sus políticas se prueban en host. Las pruebas cubren 1/25 habitaciones, secuencia, autorización, ambigüedad, duplicados, persistencia, aislamiento, publicación/ACK, caída de conexión, integridad y rollback de protocolo. La certificación eléctrica y el OTA con cortes de alimentación requieren el equipo físico.
 
-Simulador de sincronización opcional:
+## Producción y recuperación
 
-```powershell
-$env:HOOKBOX_SIM_IDENTITY_FILE='RUTA_PRIVADA_A_IDENTIDAD_DE_PRUEBA.json'
-$env:HOOKBOX_SIM_STATE_DIR='work/simulador-panel'
-node backend/hookbox/deviceSimulator.mjs --run
-```
-
-La identidad contiene `base_url`, `device_id` y `token`. El CLI exige HTTPS. La excepción loopback sólo se activa explícitamente desde las pruebas.
-
-## Contratos y ejemplo del proceso
-
-Consultar `docs/hookbox-openapi.json` y `docs/hookbox-provider-openapi.json` dentro del código CICO. Todas las rutas de dispositivo requieren `Authorization: Bearer <token>` y `X-Device-Id: <device_id>`. Los ejemplos omiten credenciales.
-
-```http
-POST /api/device/v1/hookbox/lookup
-{"schemaVersion":1,"operationId":"638e4194-8b43-4fc4-b9bd-68c8963127a0","method":"id","value":"ABC-123","language":"de"}
-
-{"schemaVersion":1,"operationId":"638e4194-8b43-4fc4-b9bd-68c8963127a0","expiresAt":"2026-10-18T18:02:00.000Z","status":"CHALLENGE","challenge":"verification_code","results":[],"mock":true}
-```
-
-```http
-POST /api/device/v1/hookbox/verify
-{"schemaVersion":1,"operationId":"638e4194-8b43-4fc4-b9bd-68c8963127a0","proof":"123456"}
-
-{"schemaVersion":1,"operationId":"638e4194-8b43-4fc4-b9bd-68c8963127a0","expiresAt":"2026-10-18T18:02:00.000Z","status":"AUTHORIZED","rooms":[{"room":"101","hook":1},{"room":"102","hook":25}],"results":[],"mock":true}
-```
-
-Después: `release/start` con el mismo `operationId`; por cada índice, `release/result` con `result:"MOCK_ACTIVATION"`, `mock:true` y `physicallyConfirmed:false`; finalmente `complete`. No interpretar `AUTHORIZED` como permiso para saltarse `release/start`. Tras incertidumbre, consultar `operations/{id}` y acudir a recepción; no repetir el pulso. Un `409` puede indicar una reclamación previa o un resultado contradictorio. `410` indica sesión caducada. Un proveedor sin configurar devuelve `503` y no crea ninguna reclamación.
-
-## Seguridad y límites operativos
-
-Las protecciones eléctricas siguen siendo código/configuración del controlador, sin campos en el tema que puedan modificarlas. Las reclamaciones impiden duplicar una estancia/habitación incluso si el dispositivo se reinicia o la sesión caduca. El proveedor debe utilizar un `reservationId` único por estancia y estable frente a reintentos, y comprobar fechas, identidad y condiciones reales de entrega.
-
-Los recursos y diseños se conservan para permitir versiones históricas; hay que definir cuotas y retención operativa antes de escalar a muchos hoteles. Las reclamaciones inciertas nunca se eliminan por caducidad. El prototipo limita el historial retornado a las 100 publicaciones más recientes; el resto continúa en la base. El QR admite URL HTTPS; no HTML, JavaScript ni motor de composición libre. Se dispone de una única familia tipográfica soportada: Montserrat Latin en tamaños compilados.
-
-## Simulador nativo compilado
-
-El target `native_checkin_simulator` usa CheckinSequence y HookManager reales sobre MockHookDriver. Ejecutar `.pio/build/native_checkin_simulator/program.exe --all-25` para recorrer los 25 ganchos secuencialmente. Imprime una línea JSON por gancho y termina con COMPLETE; `physicallyConfirmed` siempre es false. También acepta una línea JSON por stdin con operationId, identityVerified, conditionsSatisfied y rooms [{room,hook}]. No conecta al backend; para el protocolo HTTPS y persistencia de diseños se usa el simulador Node descrito arriba.
+La migración añade tablas/columnas; conserva las rutas de servo/RFID y OTA. El despliegue comprueba tests, compilación y esquema; respalda PostgreSQL y los volúmenes antes de recrear servicios. El SHA anterior queda registrado para recuperación. No elimina datos ni envía comandos al panel. Los resultados del despliegue, commits, binarios y hashes se registran en el informe final de la entrega.

@@ -9,7 +9,11 @@ import {
 } from "../../../shared/hookbox/contract.mjs";
 import { hookboxRequest, hookboxAsset } from "../../services/backendApi";
 import "./hookbox.css";
-type Version = { id: string; createdAt: string; manifest: { theme: Theme } };
+type Version = {
+  id: string;
+  createdAt: string;
+  manifest: { theme: Theme; roomMapping?: { room: string; hook: number }[] };
+};
 type Editor = {
   hotel: {
     draft: Theme;
@@ -24,7 +28,12 @@ type Editor = {
     uiDesiredVersion: string | null;
     uiAppliedVersion: string | null;
     uiRejectedReason: string | null;
-    events?: {id:string;type:string;detail:string|null;createdAt:string}[];
+    events?: {
+      id: string;
+      type: string;
+      detail: string | null;
+      createdAt: string;
+    }[];
   }[];
 };
 const keys = G.rows;
@@ -55,7 +64,18 @@ async function rgbUrl(a: {
   return c.toDataURL();
 }
 export function HookboxDesignPage() {
-  const [data, setData] = useState<Editor>(),
+  const [selectedDevice, setSelectedDevice] = useState(""),
+    [traces, setTraces] = useState<
+      {
+        id: string;
+        path: string;
+        status: number;
+        createdAt: string;
+        request: unknown;
+        response: unknown;
+      }[]
+    >([]),
+    [data, setData] = useState<Editor>(),
     [theme, setTheme] = useState(defaultTheme()),
     [lang, setLang] = useState("de"),
     [screen, setScreen] = useState("home"),
@@ -69,14 +89,33 @@ export function HookboxDesignPage() {
     [mapping, setMapping] = useState("101:1\n102:2"),
     [images, setImages] = useState<Record<string, string>>({});
   const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (screen === "waiting") {
+      const timer = setTimeout(() => setScreen("verify"), 600);
+      return () => clearTimeout(timer);
+    }
+    if (screen === "delivery") {
+      const timer = setTimeout(() => setScreen("done"), 2000);
+      return () => clearTimeout(timer);
+    }
+    if (screen !== "home") {
+      const timer = setTimeout(
+        () => setScreen("home"),
+        screen === "done" ? theme.returnMs : theme.idleMs,
+      );
+      return () => clearTimeout(timer);
+    }
+  }, [screen, theme.idleMs, theme.returnMs, value]);
   const texts = theme.texts[lang];
   useEffect(() => {
     void document.fonts
       .load("500 20px Montserrat")
       .then(() => setFontsReady(1));
   }, []);
-  async function load() {
-    const d = await hookboxRequest<Editor>("editor");
+  async function load(deviceId = selectedDevice) {
+    const d = await hookboxRequest<Editor>(
+      "editor" + (deviceId ? "?deviceId=" + encodeURIComponent(deviceId) : ""),
+    );
     setData(d);
     setTheme(d.hotel.draft);
     setLang(d.hotel.draft.defaultLanguage);
@@ -123,6 +162,7 @@ export function HookboxDesignPage() {
   async function save() {
     validateTheme(theme);
     const h = await hookboxRequest<Editor["hotel"]>("draft", {
+      deviceId: selectedDevice || undefined,
       revision: data!.hotel.revision,
       theme,
       mapping: roomMap(),
@@ -313,11 +353,31 @@ export function HookboxDesignPage() {
       button("Delete", G.delete[0], G.footerY, G.delete[1], 38);
       button(texts.home, G.home[0], G.footerY, G.home[1], 38);
     } else {
-      rect(24, 160, 752, 204, color.surface);
-      label(texts.room + " 101 (1/2)", 48, 184, 28);
-      label(texts[screen === "delivery" ? "delivery" : "done"], 48, 250, 28);
-      label("MOCK · " + texts.confirm, 48, 310);
-      button(texts.home, 24, 390, 240);
+      if (["authorized", "delivery", "done"].includes(screen)) {
+        rect(24, 160, 752, 204, color.surface);
+        label(texts.room + " 101 (1/2)", 48, 184, 28);
+        label(
+          texts[
+            screen === "delivery"
+              ? "delivery"
+              : screen === "done"
+                ? "done"
+                : "confirm"
+          ],
+          48,
+          250,
+          28,
+        );
+        if (screen === "authorized") button(texts.confirm, 48, 310, 650, 48);
+      } else
+        label(
+          screen === "waiting" ? texts.searching : texts.error,
+          24,
+          168,
+          28,
+        );
+      if (screen !== "waiting" && screen !== "delivery")
+        button(texts.home, 24, 390, 240, 48);
     }
     return () => {
       cancelled = true;
@@ -355,7 +415,7 @@ export function HookboxDesignPage() {
       }
       if (y >= 204 && y < 252 && x >= 548 && value.trim()) {
         setValue("");
-        setScreen(screen === "form" ? "verify" : "delivery");
+        setScreen(screen === "form" ? "waiting" : "authorized");
       }
       if (y >= 270 && y < 438) {
         const row = Math.floor((y - G.keyboard[1]) / G.keyboard[3]),
@@ -379,7 +439,16 @@ export function HookboxDesignPage() {
         else if (x < G.home[0]) setValue((v) => v.slice(0, -1));
         else setScreen("home");
       }
-    } else if (y >= 390) setScreen("home");
+    } else if (
+      screen === "authorized" &&
+      x >= 48 &&
+      x <= 698 &&
+      y >= 310 &&
+      y <= 358
+    )
+      setScreen("delivery");
+    else if (screen === "delivery") setScreen("done");
+    else if (y >= 390) setScreen("home");
   }
   if (!data)
     return (
@@ -401,6 +470,28 @@ export function HookboxDesignPage() {
         Hotel seleccionado en CICO. Publicación remota independiente del
         firmware.
       </p>
+      <label>
+        Configuración de pantalla
+        <select
+          aria-label="Configuración de pantalla"
+          value={selectedDevice}
+          disabled={busy}
+          onChange={(e) => {
+            const id = e.target.value;
+            setSelectedDevice(id);
+            setData(undefined);
+            setTraces([]);
+            void run(() => load(id));
+          }}
+        >
+          <option value="">Diseño general del hotel</option>
+          {data.devices.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="hb-actions">
         <button
           disabled={busy}
@@ -439,7 +530,7 @@ export function HookboxDesignPage() {
         >
           Guardar borrador
         </button>
-        <button disabled={busy} onClick={() => void run(load)}>
+        <button disabled={busy} onClick={() => void run(() => load())}>
           Restaurar cambios
         </button>
         <button
@@ -447,7 +538,10 @@ export function HookboxDesignPage() {
           onClick={() =>
             void run(async () => {
               const h = await save();
-              await hookboxRequest("publish", { revision: h.revision });
+              await hookboxRequest("publish", {
+                revision: h.revision,
+                deviceId: selectedDevice || undefined,
+              });
               await load();
               setMessage(
                 "Diseño publicado; esperando confirmación de los dispositivos",
@@ -458,6 +552,22 @@ export function HookboxDesignPage() {
           Publicar diseño
         </button>
       </div>
+      {selectedDevice && (
+        <button
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              await hookboxRequest("inherit", { deviceId: selectedDevice });
+              await load();
+              setMessage(
+                "La pantalla vuelve a seguir el diseño general del hotel",
+              );
+            })
+          }
+        >
+          Usar diseño general del hotel
+        </button>
+      )}
       <p role="status">{validation || message}</p>
       <div className="hb-grid">
         <div className="hb-fields">
@@ -618,7 +728,16 @@ export function HookboxDesignPage() {
                 <option key={l}>{l}</option>
               ))}
             </select>
-            {["home", "form", "verify", "delivery", "done"].map((s) => (
+            {[
+              "home",
+              "form",
+              "waiting",
+              "verify",
+              "authorized",
+              "delivery",
+              "done",
+              "error",
+            ].map((s) => (
               <button
                 key={s}
                 onClick={() => {
@@ -654,6 +773,12 @@ export function HookboxDesignPage() {
                 disabled={busy}
                 onClick={() => {
                   setTheme(v.manifest.theme);
+                  if (v.manifest.roomMapping)
+                    setMapping(
+                      v.manifest.roomMapping
+                        .map((r) => `${r.room}:${r.hook}`)
+                        .join("\n"),
+                    );
                   setMessage(
                     "Versión anterior cargada para revisar; publica para restaurarla",
                   );
@@ -662,6 +787,39 @@ export function HookboxDesignPage() {
                 Revisar / restaurar
               </button>
             </div>
+          ))}
+          <h2>Diagnóstico JSON</h2>
+          <button
+            disabled={busy}
+            onClick={() =>
+              void run(async () =>
+                setTraces(
+                  await hookboxRequest(
+                    "diagnostics" +
+                      (selectedDevice
+                        ? "?deviceId=" + encodeURIComponent(selectedDevice)
+                        : ""),
+                  ),
+                ),
+              )
+            }
+          >
+            Actualizar mensajes
+          </button>
+          <p>
+            Últimos 50 intercambios. Credenciales, apellidos, reservas y pruebas
+            de identidad se ocultan antes de guardarse.
+          </p>
+          {traces.map((t) => (
+            <details key={t.id}>
+              <summary>
+                {t.createdAt} · {t.path} · HTTP {t.status}
+              </summary>
+              <strong>Petición</strong>
+              <pre>{JSON.stringify(t.request, null, 2)}</pre>
+              <strong>Respuesta</strong>
+              <pre>{JSON.stringify(t.response, null, 2)}</pre>
+            </details>
           ))}
           <h2>Aplicación por dispositivo</h2>
           {data.devices.map((d) => (
@@ -674,7 +832,19 @@ export function HookboxDesignPage() {
                 <br />
                 {d.uiRejectedReason}
               </p>
-              <details><summary>Eventos recientes</summary>{d.events?.map(event=><p key={event.id}><strong>{new Date(event.createdAt).toLocaleString()} · {event.type}</strong><br/>{event.detail}</p>)}</details>
+              <details>
+                <summary>Eventos recientes</summary>
+                {d.events?.map((event) => (
+                  <p key={event.id}>
+                    <strong>
+                      {new Date(event.createdAt).toLocaleString()} ·{" "}
+                      {event.type}
+                    </strong>
+                    <br />
+                    {event.detail}
+                  </p>
+                ))}
+              </details>
             </article>
           ))}
         </div>
@@ -682,4 +852,3 @@ export function HookboxDesignPage() {
     </section>
   );
 }
-

@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "CICO Hookbox check-in and display design",
-    "version": "1.0.0",
-    "description": "Implemented CICO contract. HTTPS mandatory. Browser writes require configured Origin and hotel admin session. Device endpoints require existing provisioned device credentials. No public open endpoint. Provider schemas describe a PROPOSED adapter; they do not document an existing Steinbock API. Physical 25-solenoid release requires commissioning and is gated off in supplied check-in firmware."
+    "version": "1.1.0",
+    "description": "Implemented authenticated CICO contract. HTTPS and tenant-admin role required. Device requests require provisioned credentials. The provider is a configurable adapter contract, not an asserted Steinbock API. crowpanel_checkin_real implements 25 physical outputs; electrical commissioning is pending."
   },
   "servers": [
     {
@@ -644,6 +644,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "deviceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ]
       }
@@ -918,6 +927,143 @@
               "type": "string"
             }
           },
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/diagnostics": {
+      "get": {
+        "summary": "Last 50 redacted device JSON requests and responses, scoped to hotel and optional device",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/inherit": {
+      "post": {
+        "summary": "Remove device override and follow the hotel default again",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "deviceId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "deviceId"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
           {
             "in": "header",
             "name": "X-Tenant-Id",
@@ -1513,6 +1659,11 @@
             "items": {
               "$ref": "#/components/schemas/RoomHook"
             }
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional device override in selected hotel. Omit for hotel default."
           }
         },
         "required": [
@@ -1531,6 +1682,11 @@
           "restoreVersion": {
             "type": "string",
             "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional device override in selected hotel. Omit for hotel default."
           }
         },
         "required": [

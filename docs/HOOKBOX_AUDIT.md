@@ -1,3 +1,5 @@
+> Informe histórico de la primera entrega. El estado actual y las instrucciones están en HOOKBOX_CHECKIN.md (CICO) / CHECKIN_DESIGN.md (firmware) y en VALIDACION-FINAL.md.
+
 # Auditoría previa — 18 octubre 2026
 
 No se ha conectado al hardware, desplegado, enviado comandos ni energizado salidas.

@@ -1,3 +1,5 @@
+> Informe histórico de la primera entrega. El estado actual y las instrucciones están en HOOKBOX_CHECKIN.md (CICO) / CHECKIN_DESIGN.md (firmware) y en VALIDACION-FINAL.md.
+
 # Validación — Hookbox / CICO, 18 octubre 2026
 
 | Comprobación | Resultado |

@@ -1,3 +1,4 @@
+import { redactProtocol } from "./diagnostics.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   defaultTheme,
@@ -81,6 +82,41 @@ export function createHookboxService(prisma, provider) {
       update: {},
     });
   }
+  async function scope(tx, tenant, deviceId) {
+    if (!deviceId) return hotel(tx, tenant);
+    const d = await tx.device.findFirst({
+      where: {
+        id: uuid(deviceId),
+        tenantId: tenant,
+        hardwareModel: "CROWPANEL_7_V3",
+      },
+    });
+    if (!d) fail("Device not found in hotel", 404);
+    const h = await hotel(tx, tenant);
+    return tx.hookboxDeviceDesign.upsert({
+      where: { deviceId },
+      create: {
+        deviceId,
+        tenantId: tenant,
+        draft: h.draft,
+        mapping: h.mapping,
+      },
+      update: {},
+    });
+  }
+  async function published(tx, device) {
+    const override = await tx.hookboxDeviceDesign.findFirst({
+      where: { deviceId: device.id, tenantId: device.tenantId },
+    });
+    const h = await tx.hookboxHotel.findUnique({
+      where: { tenantId: device.tenantId },
+    });
+    const version = override?.publishedVersion || h?.publishedVersion;
+    if (!version) return null;
+    return tx.hookboxDesign.findFirst({
+      where: { id: version, tenantId: device.tenantId },
+    });
+  }
   async function operation(tx, device, id, allowExpired = false) {
     const op = await tx.hookboxOperation.findUnique({
       where: { id: uuid(id) },
@@ -98,6 +134,48 @@ export function createHookboxService(prisma, provider) {
     });
   }
   return {
+    async inherit(tenant, input) {
+      return transaction(tenant, async (tx) => {
+        if (!input.deviceId) fail("Device required");
+        await scope(tx, tenant, input.deviceId);
+        await tx.hookboxDeviceDesign.delete({
+          where: { deviceId: input.deviceId },
+        });
+        const h = await hotel(tx, tenant);
+        await tx.device.update({
+          where: { id: input.deviceId },
+          data: {
+            uiDesiredVersion: h.publishedVersion,
+            uiRejectedReason: null,
+          },
+        });
+        return { ok: true };
+      });
+    },
+    async trace(device, path, request, response, status) {
+      return transaction(device.tenantId, async (tx) => {
+        await owned(tx, device);
+        await tx.hookboxProtocolTrace.create({
+          data: {
+            tenantId: device.tenantId,
+            deviceId: device.id,
+            path,
+            status,
+            request: redactProtocol(request || {}),
+            response: redactProtocol(response || {}),
+          },
+        });
+      });
+    },
+    async diagnostics(tenant, deviceId) {
+      if (deviceId)
+        await transaction(tenant, (tx) => scope(tx, tenant, deviceId));
+      return prisma.hookboxProtocolTrace.findMany({
+        where: { tenantId: tenant, ...(deviceId ? { deviceId } : {}) },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+    },
     async failure(device, phase, status) {
       return transaction(device.tenantId, async (tx) => {
         await owned(tx, device);
@@ -118,11 +196,11 @@ export function createHookboxService(prisma, provider) {
         return a;
       });
     },
-    async editor(tenant) {
+    async editor(tenant, deviceId) {
       return transaction(tenant, async (tx) => ({
-        hotel: await hotel(tx, tenant),
+        hotel: await scope(tx, tenant, deviceId),
         versions: await tx.hookboxDesign.findMany({
-          where: { tenantId: tenant },
+          where: { tenantId: tenant, deviceId: deviceId || null },
           orderBy: { createdAt: "desc" },
           take: 100,
         }),
@@ -137,7 +215,11 @@ export function createHookboxService(prisma, provider) {
             uiChecksum: true,
             uiRejectedReason: true,
             lastSeenAt: true,
-            events: {orderBy:{createdAt:"desc"},take:20,select:{id:true,type:true,detail:true,createdAt:true}},
+            events: {
+              orderBy: { createdAt: "desc" },
+              take: 20,
+              select: { id: true, type: true, detail: true, createdAt: true },
+            },
           },
         }),
       }));
@@ -146,11 +228,15 @@ export function createHookboxService(prisma, provider) {
       const theme = validateTheme(input.theme),
         mapping = validateMapping(input.mapping);
       return transaction(tenant, async (tx) => {
-        const h = await hotel(tx, tenant);
+        const h = await scope(tx, tenant, input.deviceId);
         if (input.revision !== h.revision)
           fail("Draft changed; reload before saving", 409);
-        return tx.hookboxHotel.update({
-          where: { tenantId: tenant },
+        return (
+          input.deviceId ? tx.hookboxDeviceDesign : tx.hookboxHotel
+        ).update({
+          where: input.deviceId
+            ? { deviceId: input.deviceId }
+            : { tenantId: tenant },
           data: { draft: theme, mapping, revision: { increment: 1 } },
         });
       });
@@ -202,16 +288,22 @@ export function createHookboxService(prisma, provider) {
     },
     async publish(tenant, input, user) {
       return transaction(tenant, async (tx) => {
-        const h = await hotel(tx, tenant);
+        const h = await scope(tx, tenant, input.deviceId);
         if (input.revision !== h.revision)
           fail("Draft changed; review latest preview", 409);
-        let theme = h.draft;
+        let theme = h.draft,
+          mapping = h.mapping;
         if (input.restoreVersion) {
           const old = await tx.hookboxDesign.findFirst({
-            where: { tenantId: tenant, id: uuid(input.restoreVersion) },
+            where: {
+              tenantId: tenant,
+              deviceId: input.deviceId || null,
+              id: uuid(input.restoreVersion),
+            },
           });
           if (!old) fail("Version not found", 404);
           theme = old.manifest.theme;
+          mapping = old.manifest.roomMapping || h.mapping;
         }
         theme = validateTheme(theme);
         const assets = [];
@@ -239,6 +331,8 @@ export function createHookboxService(prisma, provider) {
             schemaVersion: 1,
             version: id,
             tenantId: tenant,
+            deviceId: input.deviceId || null,
+            roomMapping: validateMapping(mapping),
             theme,
             assets,
           };
@@ -247,21 +341,45 @@ export function createHookboxService(prisma, provider) {
           data: {
             id,
             tenantId: tenant,
+            deviceId: input.deviceId || null,
             manifest,
             sha256: hash,
             createdBy: user,
           },
         });
-        await tx.hookboxHotel.update({
-          where: { tenantId: tenant },
+        await (
+          input.deviceId ? tx.hookboxDeviceDesign : tx.hookboxHotel
+        ).update({
+          where: input.deviceId
+            ? { deviceId: input.deviceId }
+            : { tenantId: tenant },
           data: {
             publishedVersion: id,
             draft: theme,
+            mapping,
             revision: { increment: 1 },
           },
         });
         await tx.device.updateMany({
-          where: { tenantId: tenant, hardwareModel: "CROWPANEL_7_V3" },
+          where: {
+            tenantId: tenant,
+            hardwareModel: "CROWPANEL_7_V3",
+            ...(input.deviceId
+              ? { id: input.deviceId }
+              : {
+                  id: {
+                    notIn: (
+                      await tx.hookboxDeviceDesign.findMany({
+                        where: {
+                          tenantId: tenant,
+                          publishedVersion: { not: null },
+                        },
+                        select: { deviceId: true },
+                      })
+                    ).map((x) => x.deviceId),
+                  },
+                }),
+          },
           data: { uiDesiredVersion: id, uiRejectedReason: null },
         });
         return { version: id, sha256: hash };
@@ -270,13 +388,8 @@ export function createHookboxService(prisma, provider) {
     async sync(device) {
       return transaction(device.tenantId, async (tx) => {
         const d = await owned(tx, device),
-          h = await tx.hookboxHotel.findUnique({
-            where: { tenantId: d.tenantId },
-          });
-        if (!h?.publishedVersion) return { schemaVersion: 1, version: null };
-        const p = await tx.hookboxDesign.findFirst({
-          where: { id: h.publishedVersion, tenantId: d.tenantId },
-        });
+          p = await published(tx, d);
+        if (!p) return { schemaVersion: 1, version: null };
         if (!p) fail("Published version missing", 503);
         if (d.uiDesiredVersion !== p.id)
           await tx.device.update({
@@ -297,7 +410,12 @@ export function createHookboxService(prisma, provider) {
         const p = await tx.hookboxDesign.findFirst({
           where: { tenantId: device.tenantId, id: uuid(input.version) },
         });
-        if (!p || input.sha256 !== p.sha256) fail("Invalid UI acknowledgment");
+        if (
+          !p ||
+          (p.deviceId && p.deviceId !== device.id) ||
+          input.sha256 !== p.sha256
+        )
+          fail("Invalid UI acknowledgment");
         if (!["applied", "rejected"].includes(input.status))
           fail("Invalid UI status");
         if (
@@ -433,8 +551,13 @@ export function createHookboxService(prisma, provider) {
           return { ...response({ ...op, state: s }), status: "DENIED" };
         }
         const rooms = authorizedRooms(p),
-          h = await hotel(tx, device.tenantId),
-          mapping = validateMapping(h.mapping);
+          publication = await published(tx, device),
+          mapping = validateMapping(
+            publication?.manifest.roomMapping ||
+              (await hotel(tx, device.tenantId)).mapping,
+          );
+        if (!publication) fail("Publish the room mapping before check-in", 409);
+        s.designVersion = publication.id;
         s.rooms = rooms.map((room) => {
           const m = mapping.find((m) => m.room === room);
           if (!m) fail("Authorized room is not mapped", 409);
@@ -579,4 +702,3 @@ export function createHookboxService(prisma, provider) {
     },
   };
 }
-

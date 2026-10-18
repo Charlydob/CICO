@@ -173,7 +173,7 @@ function PrivateApp() {
         );
 
   const page =
-    visibleRoute === "hookbox" && canConfigureTenant ? (<HookboxDesignPage />) :
+    visibleRoute === "hookbox" && canConfigureTenant ? (<HookboxDesignPage key={activeTenantId} />) :
     visibleRoute === "parking" ? (
       <ParkingPage />
     ) : visibleRoute === "profile" ? (

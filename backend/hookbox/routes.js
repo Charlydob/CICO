@@ -68,6 +68,7 @@ export async function handleHookboxRoute({
     const d = await otaService.authenticate(request);
     if (!d.tenantId) fail("Device has no hotel", 403);
     const path = pathname.slice(devicePath.length);
+    let traceRequest = {};
     try {
       if (request.method === "GET" && path === "design")
         payload = await service.sync(d);
@@ -83,6 +84,7 @@ export async function handleHookboxRoute({
         payload = await service.status(d, path.split("/")[1]);
       else if (request.method === "POST") {
         const body = await readHookboxJson(request);
+        traceRequest = body;
         if (body.schemaVersion !== 1) fail("Unsupported schema");
         const methods = {
           "design/ack": "ack",
@@ -95,7 +97,17 @@ export async function handleHookboxRoute({
         if (!methods[path]) fail("Hookbox endpoint not found", 404);
         payload = await service[methods[path]](d, body);
       } else fail("Hookbox endpoint not found", 404);
+      await service.trace(d, path, traceRequest, payload, 200);
     } catch (error) {
+      await service
+        .trace(
+          d,
+          path,
+          traceRequest,
+          { error: error.message },
+          error.statusCode || 500,
+        )
+        .catch(() => {});
       await service.failure(d, path, error.statusCode || 500).catch(() => {});
       throw error;
     }
@@ -111,7 +123,15 @@ export async function handleHookboxRoute({
       fail("Request origin not allowed", 403);
     const path = pathname.slice(adminPath.length);
     if (request.method === "GET" && path === "editor")
-      payload = await service.editor(tenant);
+      payload = await service.editor(
+        tenant,
+        new URL(request.url, "http://localhost").searchParams.get("deviceId"),
+      );
+    else if (request.method === "GET" && path === "diagnostics")
+      payload = await service.diagnostics(
+        tenant,
+        new URL(request.url, "http://localhost").searchParams.get("deviceId"),
+      );
     else if (request.method === "GET" && /^assets\/[a-f0-9]{64}$/.test(path))
       return binary(await service.asset(tenant, path.split("/")[1]));
     else if (request.method === "POST") {
@@ -119,7 +139,8 @@ export async function handleHookboxRoute({
         request,
         path === "assets" ? 50000 : 12288,
       );
-      if (path === "draft") payload = await service.draft(tenant, body);
+      if (path === "inherit") payload = await service.inherit(tenant, body);
+      else if (path === "draft") payload = await service.draft(tenant, body);
       else if (path === "publish")
         payload = await service.publish(tenant, body, session.user.id);
       else if (path === "assets") payload = await service.upload(tenant, body);
