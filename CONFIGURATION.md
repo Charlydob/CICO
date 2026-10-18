@@ -38,3 +38,6 @@ docker compose up -d --build
 ```
 
 See [docs/HETZNER_DEPLOYMENT.md](docs/HETZNER_DEPLOYMENT.md) for the full server runbook.
+
+## Hookbox check-in and display design
+See [Hookbox implementation and lab setup](docs/HOOKBOX_CHECKIN.md) and [validation](docs/HOOKBOX_VALIDATION.md). The check-in build is MOCK; 25-channel physical check-in is not commissioned. Set HOOKBOX_PROVIDERS_JSON on the backend; the provided Compose files pass it through. No deployment has been performed.

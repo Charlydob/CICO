@@ -16,6 +16,20 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hookbox_test
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: hookbox_ci
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U hookbox_test" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://hookbox_test:local-ci-only@127.0.0.1:5432/hookbox_ci
+      HOOKBOX_TEST_DATABASE_URL: postgresql://hookbox_test:local-ci-only@127.0.0.1:5432/hookbox_ci
+      OTA_POSTGRES_TEST_DATABASE_URL: postgresql://hookbox_test:local-ci-only@127.0.0.1:5432/hookbox_ci
+      CHECKOUT_POSTGRES_TEST_DATABASE_URL: postgresql://hookbox_test:local-ci-only@127.0.0.1:5432/hookbox_ci
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,6 +42,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Migrate isolated test database
+        run: npx prisma migrate deploy
 
       - name: Test
         run: npm test
@@ -65,6 +82,11 @@ jobs:
             cd /opt/hotelapp
 
             git fetch --prune origin main
+            PREVIOUS_SHA="$(git rev-parse HEAD)"
+            if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+              echo "Production checkout has local changes; refusing to overwrite"
+              exit 1
+            fi
             git reset --hard "$DEPLOY_SHA"
 
             ACTUAL_SHA="$(git rev-parse HEAD)"
@@ -112,7 +134,7 @@ jobs:
               alpine tar czf /backup/app-evidence.tgz -C /volume .
             test -s "$BACKUP_DIR/app-data.tgz"
             test -s "$BACKUP_DIR/app-evidence.tgz"
-            printf '%s\n' "$DEPLOY_SHA" > "$BACKUP_DIR/before-deploy-sha"
+            printf '%s\n' "$PREVIOUS_SHA" > "$BACKUP_DIR/before-deploy-sha"
             chmod 600 "$BACKUP_DIR"/*
             echo "Production backup completed in $BACKUP_DIR"
 

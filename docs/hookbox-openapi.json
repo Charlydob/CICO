@@ -1,0 +1,1889 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CICO Hookbox check-in and display design",
+    "version": "1.1.0",
+    "description": "Implemented authenticated CICO contract. HTTPS and tenant-admin role required. Device requests require provisioned credentials. The provider is a configurable adapter contract, not an asserted Steinbock API. crowpanel_checkin_real implements 25 physical outputs; electrical commissioning is pending."
+  },
+  "servers": [
+    {
+      "url": "https://cico.example.invalid"
+    }
+  ],
+  "paths": {
+    "/api/device/v1/hookbox/design": {
+      "get": {
+        "summary": "Poll immutable design independently of firmware OTA",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesignSync"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        }
+      }
+    },
+    "/api/device/v1/hookbox/assets/{id}": {
+      "get": {
+        "summary": "Fetch tenant-owned RGB565 bytes; id is SHA-256",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/device/v1/hookbox/design/ack": {
+      "post": {
+        "summary": "Acknowledge only after local validation and successful UI apply",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesignAck"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/device/v1/hookbox/lookup": {
+      "post": {
+        "summary": "Lookup never authorizes key delivery",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Lookup"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/device/v1/hookbox/verify": {
+      "post": {
+        "summary": "Verify identity and delivery conditions via configured check-in provider",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verify"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/device/v1/hookbox/release/start": {
+      "post": {
+        "summary": "Durably claim all authorized rooms before any pulse",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationId"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/device/v1/hookbox/release/result": {
+      "post": {
+        "summary": "Report next electrical/mock result; physical delivery remains unconfirmed",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Result"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/device/v1/hookbox/complete": {
+      "post": {
+        "summary": "Confirm all successful electrical/mock outcomes",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationId"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/device/v1/hookbox/operations/{id}": {
+      "get": {
+        "summary": "Read status after uncertainty; never replay activation",
+        "security": [
+          {
+            "deviceToken": [],
+            "deviceId": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/editor": {
+      "get": {
+        "summary": "Draft, mapping, versions and applied device versions",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "deviceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/draft": {
+      "post": {
+        "summary": "Optimistic revision checked draft save",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Draft"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/publish": {
+      "post": {
+        "summary": "Publish immutable snapshot; optionally restore a prior version as a new version",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Publish"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/assets": {
+      "post": {
+        "summary": "Upload bounded RGB565 resource, after browser PNG/JPG conversion",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetUpload"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/assets/{id}": {
+      "get": {
+        "summary": "Preview own hotel asset",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/diagnostics": {
+      "get": {
+        "summary": "Last 50 redacted device JSON requests and responses, scoped to hotel and optional device",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/hookbox/inherit": {
+      "post": {
+        "summary": "Remove device override and follow the hotel default again",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid schema, JSON, format or font/geometry limits"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Hotel, role, Origin or identity authorization denied"
+          },
+          "404": {
+            "description": "Not found in this hotel"
+          },
+          "409": {
+            "description": "Conflicting replay, claim, sequence or draft revision"
+          },
+          "410": {
+            "description": "Session expired"
+          },
+          "413": {
+            "description": "Payload too large"
+          },
+          "415": {
+            "description": "Use application/json"
+          },
+          "426": {
+            "description": "HTTPS required"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Integration/storage unavailable; no release permitted"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "deviceId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "deviceId"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Tenant-Id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "deviceToken": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "deviceId": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Device-Id"
+      },
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "hotelapp_session"
+      }
+    },
+    "schemas": {
+      "Lookup": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "id",
+              "surname"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "de",
+              "en",
+              "fr",
+              "es"
+            ]
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "operationId",
+          "method",
+          "value",
+          "language"
+        ]
+      },
+      "Verify": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "proof": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "operationId",
+          "proof"
+        ]
+      },
+      "OperationId": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "operationId"
+        ]
+      },
+      "RoomHook": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string",
+            "maxLength": 16
+          },
+          "hook": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25
+          }
+        },
+        "required": [
+          "room",
+          "hook"
+        ]
+      },
+      "Result": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "MOCK_ACTIVATION",
+              "ELECTRICAL_ACTIVATION",
+              "UNCERTAIN",
+              "FAILED"
+            ]
+          },
+          "mock": {
+            "type": "boolean"
+          },
+          "physicallyConfirmed": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "operationId",
+          "index",
+          "result",
+          "mock",
+          "physicallyConfirmed"
+        ]
+      },
+      "Snapshot": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "CHALLENGE",
+              "INSUFFICIENT",
+              "AMBIGUOUS",
+              "NOT_FOUND",
+              "DENIED",
+              "AUTHORIZED",
+              "RELEASING",
+              "UNCERTAIN",
+              "COMPLETE"
+            ]
+          },
+          "challenge": {
+            "type": "string",
+            "nullable": true
+          },
+          "rooms": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "$ref": "#/components/schemas/RoomHook"
+            }
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "result": {
+                  "type": "string"
+                },
+                "physicallyConfirmed": {
+                  "type": "boolean",
+                  "enum": [
+                    false
+                  ]
+                }
+              },
+              "required": [
+                "index",
+                "result",
+                "physicallyConfirmed"
+              ]
+            }
+          },
+          "mock": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "operationId",
+          "expiresAt",
+          "status",
+          "results",
+          "mock"
+        ]
+      },
+      "DesignAck": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "version": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "rejected"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "version",
+          "sha256",
+          "status"
+        ]
+      },
+      "DesignSync": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "version": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "manifest": {
+            "type": "string",
+            "description": "Exact immutable UTF-8 JSON string. Hash these bytes before parsing; includes schemaVersion, version, tenantId, theme and assets."
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "version"
+        ]
+      },
+      "Text": {
+        "type": "object",
+        "properties": {
+          "welcome": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "subtitle": {
+            "type": "string",
+            "maxLength": 48
+          },
+          "id": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "surname": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "placeholderId": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "placeholderSurname": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "search": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "verify": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "verificationHelp": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "confirm": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "searching": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "error": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "room": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "delivery": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "done": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "home": {
+            "type": "string",
+            "maxLength": 32
+          }
+        },
+        "required": [
+          "welcome",
+          "subtitle",
+          "id",
+          "surname",
+          "placeholderId",
+          "placeholderSurname",
+          "search",
+          "verify",
+          "verificationHelp",
+          "confirm",
+          "searching",
+          "error",
+          "room",
+          "delivery",
+          "done",
+          "home"
+        ]
+      },
+      "Theme": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "width": {
+            "type": "integer",
+            "enum": [
+              800
+            ]
+          },
+          "height": {
+            "type": "integer",
+            "enum": [
+              480
+            ]
+          },
+          "hotelName": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "classic-left",
+              "classic-right"
+            ]
+          },
+          "font": {
+            "type": "string",
+            "enum": [
+              "latin"
+            ]
+          },
+          "defaultLanguage": {
+            "type": "string",
+            "enum": [
+              "de",
+              "en",
+              "fr",
+              "es"
+            ]
+          },
+          "colors": {
+            "type": "object",
+            "properties": {
+              "background": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
+              },
+              "surface": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
+              },
+              "primary": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
+              },
+              "text": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
+              },
+              "buttonText": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
+              }
+            },
+            "required": [
+              "background",
+              "surface",
+              "primary",
+              "text",
+              "buttonText"
+            ]
+          },
+          "qr": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "data": {
+                "type": "string",
+                "maxLength": 160,
+                "pattern": "^https://"
+              },
+              "size": {
+                "type": "integer",
+                "enum": [
+                  128,
+                  160,
+                  192
+                ]
+              }
+            },
+            "required": [
+              "enabled",
+              "data",
+              "size"
+            ]
+          },
+          "logo": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "background": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "idleMs": {
+            "type": "integer",
+            "minimum": 15000,
+            "maximum": 300000
+          },
+          "returnMs": {
+            "type": "integer",
+            "minimum": 3000,
+            "maximum": 30000
+          },
+          "texts": {
+            "type": "object",
+            "properties": {
+              "de": {
+                "$ref": "#/components/schemas/Text"
+              },
+              "en": {
+                "$ref": "#/components/schemas/Text"
+              },
+              "fr": {
+                "$ref": "#/components/schemas/Text"
+              },
+              "es": {
+                "$ref": "#/components/schemas/Text"
+              }
+            },
+            "required": [
+              "de",
+              "en",
+              "fr",
+              "es"
+            ]
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "width",
+          "height",
+          "hotelName",
+          "template",
+          "font",
+          "defaultLanguage",
+          "colors",
+          "qr",
+          "logo",
+          "background",
+          "idleMs",
+          "returnMs",
+          "texts"
+        ]
+      },
+      "Draft": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "theme": {
+            "$ref": "#/components/schemas/Theme"
+          },
+          "mapping": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+              "$ref": "#/components/schemas/RoomHook"
+            }
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional device override in selected hotel. Omit for hotel default."
+          }
+        },
+        "required": [
+          "revision",
+          "theme",
+          "mapping"
+        ]
+      },
+      "Publish": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "restoreVersion": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional device override in selected hotel. Omit for hotel default."
+          }
+        },
+        "required": [
+          "revision"
+        ]
+      },
+      "AssetUpload": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "logo",
+              "background"
+            ]
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 160
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 96
+          },
+          "data": {
+            "type": "string",
+            "format": "byte",
+            "description": "Little-endian RGB565, exactly width × height × 2 bytes, <=32768. Logo height <=64. PNG/JPG decoded and bounded by editor before upload; SVG not supported."
+          }
+        },
+        "required": [
+          "kind",
+          "width",
+          "height",
+          "data"
+        ]
+      },
+      "ProviderLookup": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "id",
+              "surname"
+            ]
+          },
+          "value": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "de",
+              "en",
+              "fr",
+              "es"
+            ]
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "tenantId",
+          "operationId",
+          "method",
+          "value",
+          "language"
+        ]
+      },
+      "ProviderVerify": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "challengeId": {
+            "type": "string"
+          },
+          "proof": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "tenantId",
+          "operationId",
+          "challengeId",
+          "proof"
+        ]
+      },
+      "ProviderLookupResponse": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "CHALLENGE",
+              "AMBIGUOUS",
+              "INSUFFICIENT",
+              "NOT_FOUND"
+            ]
+          },
+          "challengeId": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "status"
+        ]
+      },
+      "ProviderAuthorization": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          },
+          "authorized": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "identityVerified": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "conditionsSatisfied": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "reservationId": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Unique stay identifier; stable across retries, different for a new stay."
+          },
+          "rooms": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 25,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "maxLength": 16
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "authorized",
+          "identityVerified",
+          "conditionsSatisfied",
+          "reservationId",
+          "rooms"
+        ]
+      }
+    }
+  }
+}

@@ -1,3 +1,6 @@
+import { createHookboxService } from './hookbox/service.js';
+import { createCheckinProvider } from './hookbox/provider.js';
+import { handleHookboxRoute } from './hookbox/routes.js';
 import { createServer } from "node:http";
 import { handleOtaRoute } from "./routes/otaRoutes.js";
 import { createOtaService } from "./services/otaService.js";
@@ -290,6 +293,7 @@ const status = {
 const database = createDatabaseClient();
 const firmwareStorage = createFirmwareStorage();
 const otaService = createOtaService(database.prisma, firmwareStorage, { database });
+const hookboxService = createHookboxService(database.prisma, createCheckinProvider());
 const deviceLimiter = createRateLimiter({ windowMs: 60_000, max: 240 });
 await ensureBootstrapTenant(database);
 const publicCheckoutLimiter = createRateLimiter({
@@ -486,6 +490,7 @@ const server = createServer(async (request, response) => {
   const pathname = parsedUrl.pathname;
 
   try {
+    if (await handleHookboxRoute({request,response,pathname,service:hookboxService,otaService,getContext:getProtectedContext,limiter:deviceLimiter,responseHeaders:corsHeaders(request)})) return;
     if (await handleOtaRoute({ request, response, pathname, parsedUrl, service: otaService,
       storage: firmwareStorage, getContext: getProtectedContext, limiter: deviceLimiter, responseHeaders: corsHeaders(request) })) return;
     if (request.method === "GET" && pathname === "/api/health") {

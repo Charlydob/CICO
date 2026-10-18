@@ -129,7 +129,7 @@ function normalizeForWrite(value = {}) {
 }
 
 function normalizeForRead(value) {
-  if (!value) {
+  if (value == null) {
     return undefined;
   }
 

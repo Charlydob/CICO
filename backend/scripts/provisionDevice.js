@@ -1,4 +1,6 @@
 // Run on the private backend host with DATABASE_URL set. No token is printed.
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { open } from "node:fs/promises";
 import { PrismaClient } from "@prisma/client";
 import { createOtaService } from "../services/otaService.js";
@@ -23,6 +25,15 @@ let handle;
 try {
   // Fail before rotating if the destination already exists. umask/mode keep the token private.
   handle = await open(output, "wx", 0o600);
+  if (process.platform === "win32") {
+    const { stdout } = await promisify(execFile)("whoami", []);
+    await promisify(execFile)("icacls", [
+      output,
+      "/inheritance:r",
+      "/grant:r",
+      stdout.trim() + ":(F)",
+    ]);
+  }
   const device = await prisma.device.findUnique({ where: { deviceId } });
   if (!device) throw new Error("Device not registered.");
   const credentials = await createOtaService(
@@ -42,7 +53,7 @@ try {
   );
   await handle.sync();
   console.log(
-    "Device credential rotated; provisioning file saved with mode 0600. Transfer it securely into device NVS.",
+    "Device credential rotated; provisioning file saved with private permissions (0600 / owner-only Windows ACL). Transfer it securely into device NVS.",
   );
 } catch {
   console.error(
