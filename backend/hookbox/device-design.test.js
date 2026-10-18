@@ -85,9 +85,9 @@ test(
       assert.equal(traces[0].response.rooms[0].hook, 25);
       assert.equal((await s.diagnostics(other)).length, 0);
       await assert.rejects(s.diagnostics(other, a.id));
-      await assert.rejects(s.inherit(other,{deviceId:a.id}));
-      await s.inherit(tenantId,{deviceId:a.id});
-      assert.equal((await s.sync(a)).version,(await s.sync(b)).version);
+      await assert.rejects(s.inherit(other, { deviceId: a.id }));
+      await s.inherit(tenantId, { deviceId: a.id });
+      assert.equal((await s.sync(a)).version, (await s.sync(b)).version);
     } finally {
       await db.device.deleteMany({ where: { id: { in: ids } } });
       await db.hookboxDesign.deleteMany({ where: { tenantId } });

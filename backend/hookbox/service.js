@@ -84,6 +84,8 @@ export function createHookboxService(prisma, provider) {
   }
   async function scope(tx, tenant, deviceId) {
     if (!deviceId) return hotel(tx, tenant);
+    uuid(deviceId);
+    await tx.$queryRaw`SELECT id FROM devices WHERE id = ${deviceId}::uuid FOR UPDATE`;
     const d = await tx.device.findFirst({
       where: {
         id: uuid(deviceId),
@@ -93,6 +95,21 @@ export function createHookboxService(prisma, provider) {
     });
     if (!d) fail("Device not found in hotel", 404);
     const h = await hotel(tx, tenant);
+    const previous = await tx.hookboxDeviceDesign.findUnique({
+      where: { deviceId },
+    });
+    if (previous && previous.tenantId !== tenant) {
+      return tx.hookboxDeviceDesign.update({
+        where: { deviceId },
+        data: {
+          tenantId: tenant,
+          draft: h.draft,
+          mapping: h.mapping,
+          revision: 0,
+          publishedVersion: null,
+        },
+      });
+    }
     return tx.hookboxDeviceDesign.upsert({
       where: { deviceId },
       create: {
@@ -216,6 +233,15 @@ export function createHookboxService(prisma, provider) {
             uiRejectedReason: true,
             lastSeenAt: true,
             events: {
+              where: {
+                type: {
+                  in: [
+                    "hookbox.ui.applied",
+                    "hookbox.ui.rejected",
+                    "hookbox.request_failed",
+                  ],
+                },
+              },
               orderBy: { createdAt: "desc" },
               take: 20,
               select: { id: true, type: true, detail: true, createdAt: true },
