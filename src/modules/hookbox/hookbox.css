@@ -1,0 +1,66 @@
+.hb-editor {
+  padding: 20px;
+  max-width: 1500px;
+  margin: auto;
+}
+.hb-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 24px;
+}
+.hb-fields {
+  display: grid;
+  gap: 12px;
+}
+.hb-fields label {
+  display: grid;
+  gap: 5px;
+}
+.hb-fields input,
+.hb-fields select,
+.hb-fields textarea {
+  max-width: 100%;
+  padding: 8px;
+}
+.hb-editor canvas {
+  width: 100%;
+  aspect-ratio: 5/3;
+  display: block;
+  cursor: pointer;
+  box-shadow: 0 8px 30px #0004;
+}
+.hb-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.hb-editor button {
+  padding: 9px 14px;
+  cursor: pointer;
+}
+.hb-editor button:disabled {
+  opacity: 0.5;
+}
+.hb-version {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #ccc;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .hb-grid {
+    grid-template-columns: 1fr;
+  }
+  .hb-fields {
+    order: 2;
+  }
+}
+@font-face {
+  font-family: Montserrat;
+  src: url(/hookbox/Montserrat.ttf) format("truetype");
+  font-weight: 100 900;
+  font-display: swap;
+}

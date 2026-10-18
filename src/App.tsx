@@ -1,3 +1,4 @@
+import {HookboxDesignPage} from './modules/hookbox/HookboxDesignPage';
 import { useEffect, useMemo, useState } from "react";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AcceptInvitePage } from "./auth/AcceptInvitePage";
@@ -47,6 +48,7 @@ function routeFromPath(): AppRoute {
     return "settings";
   }
 
+  if (path.startsWith("/hookbox")) return "hookbox";
   if (path.startsWith("/admin/devices")) return "devices";
 
   if (path.startsWith("/admin")) {
@@ -171,6 +173,7 @@ function PrivateApp() {
         );
 
   const page =
+    visibleRoute === "hookbox" && canConfigureTenant ? (<HookboxDesignPage />) :
     visibleRoute === "parking" ? (
       <ParkingPage />
     ) : visibleRoute === "profile" ? (

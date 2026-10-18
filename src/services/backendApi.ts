@@ -1474,3 +1474,13 @@ export async function downloadFirmwareRelease(id: string) {
   const link = document.createElement("a"); link.href = url; link.download = "firmware.bin"; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+export function hookboxRequest<T>(path: string, body?: unknown): Promise<T> {
+  return requestJson<T>('/api/hookbox/'+path, body === undefined ? undefined : {method:'POST',body:JSON.stringify(body)});
+}
+export async function hookboxAsset(id:string):Promise<{bytes:ArrayBuffer;width:number;height:number}> {
+ const headers=new Headers();if(selectedTenantId) headers.set('X-Tenant-Id',selectedTenantId);
+ const r=await fetch(`${getBackendUrl()}/api/hookbox/assets/${id}`,{headers,credentials:'include'});
+ if(!r.ok) throw Error('No se pudo descargar el recurso');
+ return {bytes:await r.arrayBuffer(),width:Number(r.headers.get('X-Asset-Width')),height:Number(r.headers.get('X-Asset-Height'))};
+}
