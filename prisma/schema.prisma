@@ -634,6 +634,7 @@ model HookboxDesign {
   id String @id @default(uuid()) @db.Uuid
   tenantId String @map("tenant_id") @db.Uuid
   manifest Json
+  manifestRaw String? @map("manifest_raw") @db.Text
   sha256 String
   createdAt DateTime @default(now()) @map("created_at")
   createdBy String @map("created_by")

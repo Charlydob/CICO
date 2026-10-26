@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { createHookboxService } from "./service.js";
 import { defaultTheme } from "../../shared/hookbox/contract.mjs";
 const url = process.env.HOOKBOX_TEST_DATABASE_URL;
@@ -85,6 +86,22 @@ test(
       });
       const p = await s.publish(ta, { revision: 1 }, "test-user");
       assert.equal((await s.sync(a)).version, p.version);
+      const stored = await db.hookboxDesign.findUnique({
+        where: { id: p.version },
+      });
+      assert.notEqual(
+        JSON.stringify(stored.manifest),
+        stored.manifestRaw,
+        "PostgreSQL JSONB reordered the editor object",
+      );
+      const reloaded = await createHookboxService(db, provider).sync(a);
+      assert.equal(reloaded.manifest, stored.manifestRaw);
+      assert.equal(
+        createHash("sha256").update(reloaded.manifest, "utf8").digest("hex"),
+        reloaded.sha256,
+      );
+      assert.equal(reloaded.sha256, p.sha256);
+
       assert.equal((await s.sync(b)).version, null);
       await assert.rejects(
         s.ack(b, { version: p.version, sha256: p.sha256, status: "applied" }),
