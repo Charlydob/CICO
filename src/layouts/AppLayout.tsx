@@ -29,6 +29,7 @@ export type AppRoute =
   | "settings"
   | "users"
   | "hookbox"
+  | "hotel-devices"
   | "devices"
   | "admin"
   | "profile";
@@ -52,6 +53,7 @@ const routeIcons = {
   admin: Shield,
   devices: Wrench,
   hookbox: Wrench,
+  "hotel-devices":Wrench,
   profile: UserCircle,
 };
 
@@ -158,7 +160,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
           )}
         </div>
         <div className="mobile-topbar-actions">
-          {canConfigureTenant && <button type="button" onClick={() => onRouteChange("hookbox")}>Hookbox</button>}
+          {canConfigureTenant && <button type="button" onClick={() => onRouteChange("hotel-devices")}>Dispositivos</button>}
           {session && session.tenants.length > 1 && (
             <select
               aria-label="Hotel"
@@ -214,7 +216,8 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
                   <span>{t("team")}</span>
                   {navButton("reservations", t("reservations"))}
                   <span>{t("settings")}</span>
-                  {navButton("hookbox", "Hookbox / Diseño de pantalla")}
+                  {navButton("hotel-devices", "Mis dispositivos HOOKBOX")}
+                  {navButton("hookbox", "Diseño general de pantalla")}
                   {navButton("integrations", "Integrations")}
                   {navButton("settings", t("settings"))}
                   {navButton("users", t("team"))}

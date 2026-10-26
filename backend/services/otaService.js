@@ -230,10 +230,11 @@ export function createOtaService(
             assignedBy,
           },
         });
+        await tx.hookboxDeviceDesign.deleteMany({where:{deviceId:id}});
         return publicDevice(
           await tx.device.update({
             where: { id },
-            data: { tenantId },
+            data: { tenantId,uiDesiredVersion:null,uiAppliedVersion:null,uiChecksum:null,uiRejectedReason:null },
             include: { tenant: { select: { id: true, name: true } } },
           }),
         );

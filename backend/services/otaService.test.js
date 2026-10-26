@@ -319,11 +319,13 @@ test("device hotel reassignment is audited without rewriting historical RFID con
       update:async({data})=>Object.assign(device,data,{tenant:tenants[data.tenantId]||null}),
     },
     deviceTenantAssignment:{create:async({data})=>assignments.push(data)},
+    hookboxDeviceDesign:{deleteMany:async()=>({count:1})},
   };
   const prisma={$transaction:async(callback)=>callback(tx)};
   const service=createOtaService(prisma,{});
   const result=await service.assignTenant(deviceId,newTenant,admin);
   assert.equal(result.tenantId,newTenant);
+  assert.equal(device.uiAppliedVersion,null);assert.equal(device.uiDesiredVersion,null);assert.equal(device.uiChecksum,null);
   assert.equal(assignments.length,1);
   assert.equal(assignments[0].fromTenantName,"Hotel Antiguo");
   assert.equal(assignments[0].toTenantName,"Hotel Nuevo");

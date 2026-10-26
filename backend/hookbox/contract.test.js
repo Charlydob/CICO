@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
-  defaultTheme,
+  defaultTheme,upgradeTheme,
   validateTheme,
   validateQuery,
   validateMapping,
@@ -131,4 +131,12 @@ test("proposed provider protocol: authenticated mock, two rooms, wrong proof, ho
     process.env.NODE_ENV = "test";
     await new Promise((r) => server.close(r));
   }
+});
+
+test('guest portal migration preserves translations and configurable colors, never mixes defaults',()=>{
+  const legacy=defaultTheme('Example');legacy.template='classic-left';delete legacy.colors.inputText;
+  for(const language of LANGUAGES)delete legacy.texts[language].space;
+  const upgraded=upgradeTheme(legacy);assert.equal(upgraded.template,'guest-portal');assert.equal(upgraded.texts.fr.space,'Espace');assert.equal(upgraded.texts.de.space,'Leerzeichen');validateTheme(upgraded);
+  for(const data of ['JaVaScRiPt:alert(1)','DaTa:text/html,x','http://example.com'])assert.throws(()=>validateTheme({...upgraded,qr:{...upgraded.qr,data}}));
+  assert.equal(validateTheme({...upgraded,qr:{...upgraded.qr,data:'reservation portal'}}).qr.data,'reservation portal');
 });

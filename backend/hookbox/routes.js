@@ -66,8 +66,15 @@ export async function handleHookboxRoute({
   };
   if (pathname.startsWith(devicePath)) {
     const d = await otaService.authenticate(request);
-    if (!d.tenantId) fail("Device has no hotel", 403);
     const path = pathname.slice(devicePath.length);
+    if (!d.tenantId && request.method === "GET" && path === "design")
+      return send({
+        schemaVersion: 1,
+        version: null,
+        tenantId: null,
+        hotelName: "HOOKBOX",
+      });
+    if (!d.tenantId) fail("Device has no hotel", 403);
     let traceRequest = {};
     try {
       if (request.method === "GET" && path === "design")
@@ -122,7 +129,11 @@ export async function handleHookboxRoute({
     )
       fail("Request origin not allowed", 403);
     const path = pathname.slice(adminPath.length);
-    if (request.method === "GET" && path === "editor")
+    if (request.method === "GET" && path === "devices")
+      payload = await service.devices(tenant);
+    else if (request.method === "GET" && /^devices\/[a-f0-9-]{36}$/.test(path))
+      payload = await service.device(tenant, path.split("/")[1]);
+    else if (request.method === "GET" && path === "editor")
       payload = await service.editor(
         tenant,
         new URL(request.url, "http://localhost").searchParams.get("deviceId"),

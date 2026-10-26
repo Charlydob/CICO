@@ -1,6 +1,5 @@
-import { Copy, Plus, Plug, RefreshCw, Save, Trash2, Wifi, X } from "lucide-react";
+import { Copy, Plus, Plug, RefreshCw, Save, Trash2, Wifi } from "lucide-react";
 import { useEffect, useState } from "react";
-import { CheckInDemoForm } from "./CheckInDemoPage";
 import {
   disconnectGoogleSheets,
   disconnectJsonFeed,
@@ -117,7 +116,6 @@ export function SettingsIntegrations({
 }: SettingsIntegrationsProps) {
   const [backendUrlInput, setBackendUrlInput] = useState(backendUrl);
   const [backendTestMessage, setBackendTestMessage] = useState("");
-  const [checkInModalOpen, setCheckInModalOpen] = useState(false);
   const [googleUrl, setGoogleUrl] = useState("");
   const [jsonUrl, setJsonUrl] = useState("");
   const [jsonPath, setJsonPath] = useState("");
@@ -1099,47 +1097,11 @@ export function SettingsIntegrations({
         </section>
       </div>
 
-      <section className="panel demo-tools-panel">
-        <div className="section-heading">
-          <h2>Demo Tools</h2>
-        </div>
-        <div className="settings-form">
-          <div className="button-row">
-            <button type="button" onClick={() => setCheckInModalOpen(true)}>
-              Open Check-In Simulator
-            </button>
-          </div>
-        </div>
+      <section className="panel">
+        <h2>Pantallas HOOKBOX</h2>
+        <p>Personaliza la pantalla de cada dispositivo asignado a este hotel.</p>
+        <a href={(window.location.pathname.match(/^\/t\/[^/]+/)?.[0]||'')+'/devices'}>Mis dispositivos HOOKBOX</a>
       </section>
-
-      {checkInModalOpen && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={() => setCheckInModalOpen(false)}
-        >
-          <section
-            className="checkin-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="checkin-modal-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button
-              className="modal-close"
-              type="button"
-              onClick={() => setCheckInModalOpen(false)}
-              aria-label="Close"
-            >
-              <X size={18} />
-            </button>
-            <div id="checkin-modal-title" className="sr-only">
-              Check-In Process
-            </div>
-            <CheckInDemoForm compact />
-          </section>
-        </div>
-      )}
     </section>
   );
 }

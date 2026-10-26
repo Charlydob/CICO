@@ -32,6 +32,11 @@ test(
       const [a, b] = await Promise.all(
         ids.map((id) => db.device.findUnique({ where: { id } })),
       );
+      assert.deepEqual((await s.devices(tenantId)).map(d=>d.id).sort(),ids.slice().sort());
+      assert.equal((await s.device(tenantId,a.id)).deviceId,a.deviceId);
+      await assert.rejects(s.device(other,a.id),{statusCode:404});
+      assert.equal((await s.devices(other)).length,0);
+      assert.equal('tokenHash' in await s.device(tenantId,a.id),false);
       let e = await s.editor(tenantId);
       await s.draft(tenantId, {
         revision: e.hotel.revision,
@@ -88,10 +93,18 @@ test(
       await assert.rejects(s.inherit(other, { deviceId: a.id }));
       await s.inherit(tenantId, { deviceId: a.id });
       assert.equal((await s.sync(a)).version, (await s.sync(b)).version);
+      await db.device.update({where:{id:a.id},data:{tenantId:other}});
+      await assert.rejects(s.sync(a),{statusCode:403});
+      const moved=await db.device.findUnique({where:{id:a.id}}),fresh=await s.sync(moved);
+      assert.equal(fresh.tenantId,other);assert.equal(fresh.version,null);
+      assert.equal((await s.editor(other,a.id)).hotel.publishedVersion,null);
+      await assert.rejects(s.device(tenantId,a.id),{statusCode:404});
+      await assert.rejects(s.ack(moved,{version:device.version,sha256:device.sha256,status:'applied'}));
+
     } finally {
       await db.device.deleteMany({ where: { id: { in: ids } } });
-      await db.hookboxDesign.deleteMany({ where: { tenantId } });
-      await db.hookboxHotel.deleteMany({ where: { tenantId } });
+      await db.hookboxDesign.deleteMany({ where: { tenantId: {in:[tenantId,other]} } });
+      await db.hookboxHotel.deleteMany({ where: { tenantId: {in:[tenantId,other]} } });
       await db.tenant.deleteMany({ where: { id: { in: [tenantId, other] } } });
       await db.$disconnect();
     }

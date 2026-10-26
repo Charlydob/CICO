@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "CICO Hookbox check-in and display design",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "Implemented authenticated CICO contract. HTTPS and tenant-admin role required. Device requests require provisioned credentials. The provider is a configurable adapter contract, not an asserted Steinbock API. crowpanel_checkin_real implements 25 physical outputs; electrical commissioning is pending."
   },
   "servers": [
@@ -1075,6 +1075,59 @@
           }
         ]
       }
+    },
+    "/api/hookbox/devices": {
+      "get": {
+        "summary": "Own hotel assigned HOOKBOX devices",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Display configuration status without credentials"
+          },
+          "403": {
+            "description": "Hotel administrator required"
+          },
+          "404": {
+            "description": "Device not in this hotel"
+          }
+        }
+      }
+    },
+    "/api/hookbox/devices/{deviceId}": {
+      "get": {
+        "summary": "Own hotel HOOKBOX detail",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Display configuration status without credentials"
+          },
+          "403": {
+            "description": "Hotel administrator required"
+          },
+          "404": {
+            "description": "Device not in this hotel"
+          }
+        },
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1383,11 +1436,21 @@
           "manifest": {
             "type": "string",
             "description": "Exact immutable UTF-8 JSON string. Hash these bytes before parsing; includes schemaVersion, version, tenantId, theme and assets."
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "hotelName": {
+            "type": "string"
           }
         },
         "required": [
           "schemaVersion",
-          "version"
+          "version",
+          "tenantId",
+          "hotelName"
         ]
       },
       "Text": {
@@ -1456,6 +1519,22 @@
           "home": {
             "type": "string",
             "maxLength": 32
+          },
+          "qrHelp": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "space": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "shift": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "delete": {
+            "type": "string",
+            "maxLength": 32
           }
         },
         "required": [
@@ -1474,7 +1553,11 @@
           "room",
           "delivery",
           "done",
-          "home"
+          "home",
+          "qrHelp",
+          "space",
+          "shift",
+          "delete"
         ]
       },
       "Theme": {
@@ -1505,8 +1588,7 @@
           "template": {
             "type": "string",
             "enum": [
-              "classic-left",
-              "classic-right"
+              "guest-portal"
             ]
           },
           "font": {
@@ -1546,6 +1628,22 @@
               "buttonText": {
                 "type": "string",
                 "pattern": "^#[a-fA-F0-9]{6}$"
+              },
+              "secondary": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
+              },
+              "inputBackground": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
+              },
+              "inputText": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
+              },
+              "inputBorder": {
+                "type": "string",
+                "pattern": "^#[a-fA-F0-9]{6}$"
               }
             },
             "required": [
@@ -1553,7 +1651,11 @@
               "surface",
               "primary",
               "text",
-              "buttonText"
+              "buttonText",
+              "secondary",
+              "inputBackground",
+              "inputText",
+              "inputBorder"
             ]
           },
           "qr": {
@@ -1565,7 +1667,7 @@
               "data": {
                 "type": "string",
                 "maxLength": 160,
-                "pattern": "^https://"
+                "description": "Safe plain content or HTTPS URL, maximum 160 UTF-8 bytes; control characters and executable/local schemes are rejected."
               },
               "size": {
                 "type": "integer",
@@ -1716,7 +1818,7 @@
           "data": {
             "type": "string",
             "format": "byte",
-            "description": "Little-endian RGB565, exactly width × height × 2 bytes, <=32768. Logo height <=64. PNG/JPG decoded and bounded by editor before upload; SVG not supported."
+            "description": "Little-endian RGB565, exactly width \u00d7 height \u00d7 2 bytes, <=32768. Logo height <=64. PNG/JPG decoded and bounded by editor before upload; SVG not supported."
           }
         },
         "required": [

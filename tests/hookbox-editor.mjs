@@ -65,16 +65,23 @@ await page
 await page.getByText("Borrador guardado", { exact: true }).waitFor();
 assert.equal(draft.hotelName, "Hotel Prueba");
 const canvas = page.locator("canvas");
-const pixels=()=>canvas.evaluate(c=>c.toDataURL());
-const before=await pixels();
-await page.getByLabel("Plantilla").selectOption("classic-left");
-await page.waitForTimeout(80);assert.notEqual(await pixels(),before,'template updates canvas immediately');
-await page.getByLabel("Plantilla").selectOption("classic-right");
-for(const screen of ['waiting','authorized','error','delivery','done']){await page.getByRole('button',{name:screen,exact:true}).click();await page.waitForTimeout(30);assert.ok((await pixels()).length>1000);}
-await page.getByLabel('Configuración de pantalla',{exact:true}).selectOption('panel');
-await page.getByLabel('Nombre del hotel').waitFor();
-await page.getByLabel('Configuración de pantalla',{exact:true}).selectOption('');
-await page.getByRole("button", { name: "form", exact: true }).click();
+const pixels = () => canvas.evaluate((c) => c.toDataURL());
+assert.equal(await page.getByLabel("Plantilla").inputValue(), "guest-portal");
+for (const screen of ["Búsqueda", "Habitación", "Error", "Entrega", "Final"]) {
+  await page.getByRole("button", { name: screen, exact: true }).click();
+  await page.waitForTimeout(30);
+  assert.ok((await pixels()).length > 1000);
+}
+await page
+  .getByLabel("Configuración de pantalla", { exact: true })
+  .selectOption("panel");
+await page.getByLabel("Nombre del hotel").waitFor();
+await page
+  .getByLabel("Configuración de pantalla", { exact: true })
+  .selectOption("");
+await page
+  .getByRole("button", { name: "Identificación y teclado", exact: true })
+  .click();
 async function tap(x, y) {
   const r = await canvas.boundingBox();
   await page.mouse.click(r.x + (x * r.width) / 800, r.y + (y * r.height) / 480);
@@ -82,9 +89,9 @@ async function tap(x, y) {
 await tap(40, 280);
 await tap(120, 280);
 await tap(550, 220);
-await page.getByRole("button", { name: "verify", exact: true }).waitFor();
-await page.getByRole("button", { name: "home", exact: true }).click();
-await tap(625, 446); // fr
+await page.getByRole("button", { name: "Verificación", exact: true }).waitFor();
+await page.getByRole("button", { name: "Inicio", exact: true }).click();
+await tap(694, 44); // fr
 assert.equal(
   await page.getByLabel("Idioma de vista previa").inputValue(),
   "fr",
@@ -96,15 +103,44 @@ await page
   .getByText("Diseño publicado; esperando confirmación de los dispositivos")
   .waitFor();
 assert.equal(published, 1);
+await page.getByLabel("Nombre del hotel").fill("Guest House Steinbock");
 await page
-  .getByRole("button", { name: "Cargar tema piloto Steinbock", exact: true })
+  .getByRole("button", { name: "Aplicar identidad Steinbock", exact: true })
   .click();
 await page
   .getByText(
-    "Tema piloto cargado como borrador; revisa y publica cuando esté listo",
+    "Identidad Steinbock cargada como borrador; revisa y publica para aplicarla",
     { exact: true },
   )
   .waitFor();
+await canvas.scrollIntoViewIfNeeded();
+const bounds = await canvas.boundingBox();
+await page.mouse.move(
+  bounds.x + (150 * bounds.width) / 800,
+  bounds.y + (40 * bounds.height) / 480,
+);
+await page.mouse.down();
+await page.waitForTimeout(5100);
+await page.mouse.up();
+await page.waitForTimeout(100);
+const servicePixels = await pixels();
+await page.getByRole("button", { name: "Inicio", exact: true }).click();
+await page.waitForTimeout(100);
+assert.notEqual(
+  await pixels(),
+  servicePixels,
+  "five second hold opens PIN view",
+);
+await page
+  .getByRole("button", {
+    name: "Restaurar plantilla predeterminada",
+    exact: true,
+  })
+  .click();
+assert.equal(
+  await page.getByLabel("Nombre del hotel").inputValue(),
+  "Guest House Steinbock",
+);
 await page.waitForTimeout(200);
 await page.screenshot({
   path: path.join(output, "editor-hookbox.png"),
