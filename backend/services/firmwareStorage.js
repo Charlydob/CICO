@@ -1,5 +1,6 @@
+import { validateEspImage } from "./espImage.js";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, rename, unlink, stat } from "node:fs/promises";
+import { mkdir, open, rename, unlink, stat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { hardwareSpec, otaError } from "./otaProtocol.js";
 
@@ -31,8 +32,7 @@ export function createFirmwareStorage(
       try {
         for await (const chunk of request) {
           size += chunk.length;
-          if (size > limit)
-            throw otaError(limitMessage, 413);
+          if (size > limit) throw otaError(limitMessage, 413);
           if (prefix.length < 36)
             prefix = Buffer.concat([
               prefix,
@@ -61,6 +61,7 @@ export function createFirmwareStorage(
         if (length && Number(length) !== size)
           throw otaError("Incomplete firmware upload.");
         await handle.sync();
+        validateEspImage(await readFile(temp), spec.espImageChipId);
         await handle.close();
         await rename(temp, filePath(key));
         return { storagePath: key, fileSize: size, sha256: hash.digest("hex") };
@@ -77,6 +78,13 @@ export function createFirmwareStorage(
         });
       if (!info.isFile() || info.size !== release.fileSize)
         throw otaError("Firmware artifact is damaged.", 503);
+      const bytes = await readFile(file);
+      if (createHash("sha256").update(bytes).digest("hex") !== release.sha256)
+        throw otaError("Firmware artifact SHA-256 mismatch.", 503);
+      validateEspImage(
+        bytes,
+        hardwareSpec(release.hardwareModel).espImageChipId,
+      );
       return file;
     },
     async remove(key) {

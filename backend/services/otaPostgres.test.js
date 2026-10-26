@@ -1,3 +1,4 @@
+import {espImage} from "../testSupport/espImageFixture.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
@@ -71,10 +72,7 @@ test(
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const base = `http://127.0.0.1:${server.address().port}`;
     let adminCookie, tenantCookie, credentials, device, release, pending;
-    const bytes = Buffer.alloc(1024, 0x31);
-    bytes[0] = 0xe9;
-    bytes.writeUInt16LE(9, 12);
-    bytes.writeUInt32LE(0xabcd5432, 32);
+    const bytes = espImage(1024);
     const deviceHeaders = () => ({
       "x-device-id": device.deviceId,
       authorization: `Bearer ${credentials.token}`,
@@ -577,10 +575,11 @@ test(
           const next = await publish("2.4.2", "sha-test");
           pending = await service.assignUpdate(device.id, next.id, adminId);
           assert.equal(
-            (await report({ status: "FAILED", result_code: "SHA256_MISMATCH" }))
+            (await report({ status: "FAILED", result_code: "SHA256_MISMATCH", diagnostic:{stage:"IMAGE_VALIDATION",bytes:1024,slot:"ota_1",slotBytes:1835008,flashSha256:"a".repeat(64),freeHeap:30000,espCode:5379,espError:"ESP_ERR_OTA_VALIDATE_FAILED",espLog:"E esp_image: checksum mismatch"} }))
               .status,
             200,
           );
+          const diagnosticEvent=await prisma.deviceEvent.findFirst({where:{deviceId:device.id,type:"cico.ota.validation"},orderBy:{createdAt:"desc"}});assert.equal(JSON.parse(diagnosticEvent.detail).espCode,5379);
           assert.equal(
             (await service.getDevice(device.id)).currentFirmwareVersion,
             "2.4.1",
