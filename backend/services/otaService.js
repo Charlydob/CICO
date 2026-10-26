@@ -680,6 +680,69 @@ export function createOtaService(
             return { accepted: true, duplicate: true, cancelled: true };
           const patch = validateStatusReport(update, body);
           if (patch.duplicate) return { accepted: true, duplicate: true };
+          if (body.diagnostic) {
+            const allowed = [
+              "stage",
+              "bytes",
+              "slot",
+              "slotBytes",
+              "flashSha256",
+              "freeHeap",
+              "espCode",
+              "espError",
+              "espLog",
+            ];
+            if (
+              typeof body.diagnostic !== "object" ||
+              Array.isArray(body.diagnostic) ||
+              Object.keys(body.diagnostic).some((k) => !allowed.includes(k))
+            )
+              throw otaError("Invalid OTA diagnostic.");
+            const diagnostic = { requestId: id };
+            for (const key of ["bytes", "slotBytes", "freeHeap", "espCode"]) {
+              if (body.diagnostic[key] !== undefined) {
+                const v = body.diagnostic[key];
+                if (
+                  !Number.isInteger(v) ||
+                  v < (key === "espCode" ? -2147483648 : 0) ||
+                  v > 2147483647
+                )
+                  throw otaError("Invalid OTA diagnostic number.");
+                diagnostic[key] = v;
+              }
+            }
+            for (const key of [
+              "stage",
+              "slot",
+              "flashSha256",
+              "espError",
+              "espLog",
+            ]) {
+              if (body.diagnostic[key] !== undefined) {
+                let v = body.diagnostic[key];
+                if (
+                  typeof v !== "string" ||
+                  v.length > (key === "espLog" ? 320 : 64)
+                )
+                  throw otaError("Invalid OTA diagnostic string.");
+                if (key === "espLog")
+                  v = v
+                    .replace(/\x1b\[[0-9;]*m/g, "")
+                    .replace(/[^a-zA-Z0-9 _.:=(),\/\-\n]/g, "");
+                else if (!/^[a-zA-Z0-9_]+$/.test(v))
+                  throw otaError("Invalid OTA diagnostic code.");
+                diagnostic[key] = v;
+              }
+            }
+            await tx.deviceEvent.create({
+              data: {
+                deviceId: current.id,
+                type: "cico.ota.validation",
+                detail: JSON.stringify(diagnostic),
+                uptimeMs: 0,
+              },
+            });
+          }
           await tx.otaRequest.update({ where: { id }, data: patch });
           await tx.otaEvent.create({
             data: {

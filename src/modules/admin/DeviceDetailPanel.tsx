@@ -31,6 +31,8 @@ const duration=(seconds:number|null)=>{
 const memory=(bytes:number|null)=>bytes===null?"—":`${Math.round(bytes/1024).toLocaleString("es-ES")} KiB`;
 
 function updateState(update:OtaUpdate) {
+  if(update.resultCode==="IMAGE_VALIDATION_FAILED")return "El receptor rechazó la imagen al verificarla en flash. En firmware antiguo el 0 % no representa los bytes descargados; consulta el diagnóstico OTA o el registro serie.";
+  if(update.resultCode==="FLASH_READBACK_MISMATCH")return "La imagen escrita en flash no coincide con el SHA-256 recibido. No se cambió el arranque.";
   if(update.status==="CANCELLED") return "Cancelada administrativamente; el historial permanece intacto.";
   if(update.reconciliation?.state==="INSTALLED_BUILD_MISMATCH")
     return "La versión instalada coincide, pero el build comunicado no coincide con la release.";

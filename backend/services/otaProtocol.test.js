@@ -1,3 +1,4 @@
+import {espImage} from "../testSupport/espImageFixture.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
@@ -44,13 +45,8 @@ export function heartbeat(extra = {}) {
     ...extra,
   };
 }
-function image(size = 512, chipId = 9) {
-  const value = Buffer.alloc(size, 0x42);
-  value[0] = 0xe9;
-  value.writeUInt16LE(chipId, 12);
-  value.writeUInt32LE(0xabcd5432, 32);
-  return value;
-}
+const image=espImage;
+
 function upload(data, headers = {}) {
   const request = Readable.from(Array.isArray(data) ? data : [data]);
   request.headers = headers;
@@ -275,7 +271,7 @@ test("firmware storage validates ESP32 and ESP32-S3 images by hardware and slot 
       artifact.sha256,
       createHash("sha256").update(bytes).digest("hex"),
     );
-    assert.deepEqual(await readFile(await storage.get(artifact)), bytes);
+    assert.deepEqual(await readFile(await storage.get({...artifact,hardwareModel:device.hardwareModel})), bytes);
     const checkoutBytes = image(512, 0);
     const checkoutArtifact = await storage.save(
       upload(checkoutBytes),
