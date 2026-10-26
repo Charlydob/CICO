@@ -6,13 +6,13 @@ export function textWidth(s, size = 20) {
   );
 }
 export const TEXT_WIDTHS = {
-  welcome: [40, 752],
+  welcome: [40, 500],
   subtitle: [20, 460],
   id: [20, 186],
   surname: [20, 198],
-  placeholderId: [20, 476],
-  placeholderSurname: [20, 476],
-  search: [20, 204],
+  placeholderId: [20, 248],
+  placeholderSurname: [20, 248],
+  search: [20, 148],
   verify: [20, 204],
   verificationHelp: [20, 752],
   confirm: [20, 626],
@@ -22,6 +22,10 @@ export const TEXT_WIDTHS = {
   delivery: [28, 704],
   done: [28, 704],
   home: [20, 112],
+  qrHelp: [14, 196],
+  space: [20, 236],
+  shift: [20, 86],
+  delete: [20, 96],
 };
 import geometry from "./geometry.json" with { type: "json" };
 export const GEOMETRY = Object.freeze(geometry);
@@ -54,6 +58,10 @@ export const TEXT_KEYS = [
   "delivery",
   "done",
   "home",
+  "qrHelp",
+  "space",
+  "shift",
+  "delete",
 ];
 const base = {
   de: [
@@ -70,7 +78,7 @@ const base = {
     "Buchung wird gesucht",
     "Bitte Rezeption kontaktieren",
     "Zimmer",
-    "Elektrische Aktivierung",
+    "Schlüssel werden bereitgestellt",
     "Vorgang abgeschlossen",
     "Start",
   ],
@@ -88,7 +96,7 @@ const base = {
     "Searching for booking",
     "Please contact reception",
     "Room",
-    "Electrical activation",
+    "Preparing your keys",
     "Process completed",
     "Home",
   ],
@@ -106,7 +114,7 @@ const base = {
     "Recherche en cours",
     "Veuillez contacter la réception",
     "Chambre",
-    "Activation électrique",
+    "Préparation des clés",
     "Opération terminée",
     "Accueil",
   ],
@@ -124,18 +132,25 @@ const base = {
     "Buscando reserva",
     "Contacta con recepción",
     "Habitación",
-    "Activación eléctrica",
+    "Preparando tus llaves",
     "Proceso finalizado",
     "Inicio",
   ],
 };
+const extra = {
+  de: ["Mit dem Handy", "Leerzeichen", "Groß", "Löschen"],
+  en: ["Continue on phone", "Space", "Shift", "Delete"],
+  fr: ["Sur votre mobile", "Espace", "Maj.", "Effacer"],
+  es: ["En tu móvil", "Espacio", "Mayús.", "Borrar"],
+};
+for (const l of LANGUAGES) base[l].push(...extra[l]);
 export function defaultTheme(hotelName = "Hotel") {
   return {
     schemaVersion: 1,
     width: 800,
     height: 480,
     hotelName,
-    template: "classic-right",
+    template: "guest-portal",
     font: "latin",
     defaultLanguage: "de",
     colors: {
@@ -144,8 +159,12 @@ export function defaultTheme(hotelName = "Hotel") {
       primary: "#c4a574",
       text: "#ebe4d7",
       buttonText: "#18150f",
+      secondary: "#b7ab96",
+      inputBackground: "#19160f",
+      inputText: "#ebe4d7",
+      inputBorder: "#6c5939",
     },
-    qr: { enabled: true, data: "https://example.com", size: 160 },
+    qr: { enabled: true, data: "https://example.com", size: 192 },
     logo: null,
     background: null,
     idleMs: 60000,
@@ -161,7 +180,20 @@ export function defaultTheme(hotelName = "Hotel") {
 export function fail(message, statusCode = 400) {
   throw Object.assign(new Error(message), { statusCode });
 }
+export function upgradeTheme(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  const theme = JSON.parse(JSON.stringify(raw));
+  if (["classic-left", "classic-right"].includes(theme.template)) {
+    const defaults = defaultTheme(theme.hotelName);
+    theme.template = "guest-portal";
+    theme.colors = { ...defaults.colors, ...theme.colors };
+    for (const l of LANGUAGES)
+      theme.texts[l] = { ...defaults.texts[l], ...theme.texts?.[l] };
+  }
+  return theme;
+}
 export function validateTheme(raw) {
+  raw = upgradeTheme(raw);
   if (
     !raw ||
     raw.schemaVersion !== 1 ||
@@ -173,7 +205,7 @@ export function validateTheme(raw) {
   if (Object.keys(raw).some((k) => !allowed.includes(k)))
     fail("Unsupported theme field");
   if (
-    !["classic-right", "classic-left"].includes(raw.template) ||
+    raw.template !== "guest-portal" ||
     raw.font !== "latin" ||
     !LANGUAGES.includes(raw.defaultLanguage)
   )
@@ -191,7 +223,7 @@ export function validateTheme(raw) {
         [0x131, 0x141, 0x142, 0x152, 0x153].includes(v)
       );
     });
-  if (!text(raw.hotelName, 32) || textWidth(raw.hotelName, 28) > 500)
+  if (!text(raw.hotelName, 32) || textWidth(raw.hotelName, 28) > 436)
     fail("Hotel name exceeds font/length limits");
   for (const k of Object.keys(defaultTheme().colors))
     if (!/^#[0-9a-fA-F]{6}$/.test(raw.colors?.[k])) fail("Invalid color " + k);
@@ -218,10 +250,13 @@ export function validateTheme(raw) {
     typeof raw.qr?.enabled !== "boolean" ||
     ![128, 160, 192].includes(raw.qr.size) ||
     typeof raw.qr.data !== "string" ||
-    raw.qr.data.length > 160 ||
-    !/^https:\/\/[^\s]+$/.test(raw.qr.data)
+    new TextEncoder().encode(raw.qr.data).length > 160 ||
+    !raw.qr.data.trim() ||
+    /[\x00-\x1f\x7f]/.test(raw.qr.data) ||
+    /^(?:javascript|data|file|vbscript):/i.test(raw.qr.data) ||
+    (raw.qr.data.includes("://") && !/^https:\/\/[^\s]+$/.test(raw.qr.data))
   )
-    fail("QR requires HTTPS and a supported size");
+    fail("QR requires safe content and a supported size");
   for (const k of ["logo", "background"])
     if (raw[k] !== null && !/^[a-f0-9]{64}$/.test(raw[k]))
       fail("Invalid asset digest");

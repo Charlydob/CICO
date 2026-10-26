@@ -1,6 +1,8 @@
+import { renderGuestPortal } from "./drawGuestPortal";
 import { useEffect, useRef, useState } from "react";
 import {
   defaultTheme,
+  upgradeTheme,
   validateTheme,
   LANGUAGES,
   TEXT_KEYS,
@@ -36,6 +38,28 @@ type Editor = {
     }[];
   }[];
 };
+const textLabels: Record<string, string> = {
+  welcome: "Bienvenida",
+  subtitle: "Subtítulo",
+  id: "Etiqueta de Check-in ID",
+  surname: "Etiqueta de apellido",
+  placeholderId: "Ejemplo del identificador",
+  placeholderSurname: "Ejemplo del apellido",
+  search: "Botón de búsqueda",
+  verify: "Botón de verificación",
+  verificationHelp: "Instrucciones de verificación",
+  confirm: "Confirmar entrega",
+  searching: "Buscando reserva",
+  error: "Mensaje de error",
+  room: "Habitación",
+  delivery: "Entrega en curso",
+  done: "Entrega terminada",
+  home: "Volver al inicio",
+  qrHelp: "Texto bajo el QR",
+  space: "Teclado: espacio",
+  shift: "Teclado: mayúsculas",
+  delete: "Teclado: borrar",
+};
 const keys = G.rows;
 async function rgbUrl(a: {
   bytes: ArrayBuffer;
@@ -63,8 +87,8 @@ async function rgbUrl(a: {
   ctx.putImageData(im, 0, 0);
   return c.toDataURL();
 }
-export function HookboxDesignPage() {
-  const [selectedDevice, setSelectedDevice] = useState(""),
+export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
+  const [selectedDevice, setSelectedDevice] = useState(deviceId || ""),
     [traces, setTraces] = useState<
       {
         id: string;
@@ -117,7 +141,7 @@ export function HookboxDesignPage() {
       "editor" + (deviceId ? "?deviceId=" + encodeURIComponent(deviceId) : ""),
     );
     setData(d);
-    setTheme(d.hotel.draft);
+    setTheme(upgradeTheme(d.hotel.draft));
     setLang(d.hotel.draft.defaultLanguage);
     setMapping(d.hotel.mapping.map((r) => `${r.room}:${r.hook}`).join("\n"));
   }
@@ -218,196 +242,58 @@ export function HookboxDesignPage() {
     const ctx = canvas.current?.getContext("2d");
     if (!ctx) return;
     let cancelled = false;
-    const color = theme.colors;
-    ctx.fillStyle = color.background;
-    ctx.fillRect(0, 0, 800, 480);
-    const label = (
-      s: string,
-      x: number,
-      y: number,
-      size = 20,
-      foreground = color.text,
-    ) => {
-      ctx.fillStyle = foreground;
-      ctx.font = `500 ${size}px Montserrat, sans-serif`;
-      ctx.textBaseline = "top";
-      ctx.fillText(s, x, y);
-    };
-    const rect = (x: number, y: number, w: number, h: number, c: string) => {
-      ctx.fillStyle = c;
-      ctx.fillRect(x, y, w, h);
-    };
-    const button = (s: string, x: number, y: number, w: number, h = 48) => {
-      rect(x, y, w, h, color.primary);
-      label(s, x + 12, y + 14, 20, color.buttonText);
-    };
-    label(theme.hotelName, G.brand[0], G.brand[1], 28, color.primary);
-    label(texts.welcome, G.title[0], G.title[1], 40);
-    if (theme.logo && images[theme.logo]) {
-      const im = new Image();
-      im.onload = () => {
-        if (!cancelled) ctx.drawImage(im, G.logo[0], G.logo[1]);
-      };
-      im.src = images[theme.logo];
-    }
-    if (screen === "home") {
-      const x = theme.template === "classic-left" ? G.cardLeftX : G.card[0];
-      rect(x, G.card[1], G.card[2], G.card[3], color.surface);
-      label(
-        texts.subtitle,
-        x + G.subtitleOffset[0],
-        G.card[1] + G.subtitleOffset[1],
-      );
-      button(
-        texts.id,
-        x + G.homeButtons[0],
-        G.homeButtons[2],
-        G.homeButtons[3],
-        G.homeButtons[5],
-      );
-      button(
-        texts.surname,
-        x + G.homeButtons[1],
-        G.homeButtons[2],
-        G.homeButtons[4],
-        G.homeButtons[5],
-      );
-      if (theme.qr.enabled) {
-        const qx =
-          theme.template === "classic-left" ? G.qrLeft[0] : G.qrRight[0];
-        void import("qrcode").then(async (QR) => {
-          const c = document.createElement("canvas");
-          await QR.toCanvas(c, theme.qr.data, {
-            width: theme.qr.size,
-            margin: 2,
-            errorCorrectionLevel: "M",
-          });
-          if (!cancelled) ctx.drawImage(c, qx, G.qrRight[1]);
-        });
-      }
-      if (theme.background && images[theme.background]) {
-        const im = new Image();
-        im.onload = () => {
-          if (!cancelled) ctx.drawImage(im, 24, 376);
-        };
-        im.src = images[theme.background];
-      }
-      LANGUAGES.forEach((l, i) =>
-        button(
-          l,
-          G.languages[0] + i * G.languages[2],
-          G.languages[1],
-          G.languages[3],
-          G.languages[4],
-        ),
-      );
-      button(
-        "Service",
-        ...([G.service[0], G.service[1], G.service[2], G.service[3]] as [
-          number,
-          number,
-          number,
-          number,
-        ]),
-      );
-    } else if (screen === "form" || screen === "verify") {
-      if (screen === "form") {
-        button(texts.id, ...(G.id as [number, number, number, number]));
-        button(
-          texts.surname,
-          ...(G.surname as [number, number, number, number]),
-        );
-      } else label(texts.verificationHelp, 24, 152);
-      rect(G.input[0], G.input[1], G.input[2], G.input[3], color.surface);
-      label(
-        (screen === "verify" ? "*".repeat(value.length) : value) ||
-          (screen === "verify"
-            ? ""
-            : texts[method === "id" ? "placeholderId" : "placeholderSurname"]),
-        36,
-        216,
-      );
-      button(
-        screen === "verify" ? texts.verify : texts.search,
-        ...(G.submit as [number, number, number, number]),
-      );
-      keys.forEach((row, r) =>
-        (accents && r === 3
-          ? accents === 1
-            ? G.accentKeys
-            : G.symbolKeys
-          : [...row]
-        ).forEach((k, i) =>
-          button(
-            shift && k !== "ß" ? k.toLocaleUpperCase() : k,
-            G.keyboard[0] + i * G.keyboard[2],
-            G.keyboard[1] + r * G.keyboard[3],
-            G.keyboard[4],
-            G.keyboard[5],
-          ),
-        ),
-      );
-      button("Space", G.space[0], G.footerY, G.space[1], 38);
-      button("Shift", G.shift[0], G.footerY, G.shift[1], 38);
-      button("äéñ", G.accents[0], G.footerY, G.accents[1], 38);
-      button("Delete", G.delete[0], G.footerY, G.delete[1], 38);
-      button(texts.home, G.home[0], G.footerY, G.home[1], 38);
-    } else {
-      if (["authorized", "delivery", "done"].includes(screen)) {
-        rect(24, 160, 752, 204, color.surface);
-        label(texts.room + " 101 (1/2)", 48, 184, 28);
-        label(
-          texts[
-            screen === "delivery"
-              ? "delivery"
-              : screen === "done"
-                ? "done"
-                : "confirm"
-          ],
-          48,
-          250,
-          28,
-        );
-        if (screen === "authorized") button(texts.confirm, 48, 310, 650, 48);
-      } else
-        label(
-          screen === "waiting" ? texts.searching : texts.error,
-          24,
-          168,
-          28,
-        );
-      if (screen !== "waiting" && screen !== "delivery")
-        button(texts.home, 24, 390, 240, 48);
-    }
+    renderGuestPortal(
+      ctx,
+      theme,
+      { lang, screen, method, value, shift, accents, images },
+      () => !cancelled,
+    );
     return () => {
       cancelled = true;
     };
-  }, [
-    theme,
-    lang,
-    screen,
-    method,
-    value,
-    images,
-    texts,
-    shift,
-    accents,
-    fontsReady,
-  ]);
+  }, [theme, lang, screen, method, value, shift, accents, images, fontsReady]);
+  const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  function stopHold() {
+    if (hold.current) clearTimeout(hold.current);
+    hold.current = undefined;
+  }
+  useEffect(() => () => stopHold(), []);
+  function canvasPoint(e: React.PointerEvent<HTMLCanvasElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    return {
+      x: ((e.clientX - r.left) * 800) / r.width,
+      y: ((e.clientY - r.top) * 480) / r.height,
+    };
+  }
+  function startHold(e: React.PointerEvent<HTMLCanvasElement>) {
+    stopHold();
+    const { x, y } = canvasPoint(e);
+    if (x >= 24 && x <= 548 && y >= 16 && y <= 72)
+      hold.current = setTimeout(() => setScreen("service"), 5000);
+  }
+
   function click(e: React.MouseEvent<HTMLCanvasElement>) {
     const r = e.currentTarget.getBoundingClientRect(),
       x = ((e.clientX - r.left) * 800) / r.width,
       y = ((e.clientY - r.top) * 480) / r.height;
-    if (screen === "home" && y >= G.languages[1] && x >= G.languages[0]) {
+    if (
+      screen !== "service" &&
+      y >= G.languages[1] &&
+      y <= G.languages[1] + G.languages[4] &&
+      x >= G.languages[0] &&
+      x <= 776
+    ) {
       const l = LANGUAGES[Math.floor((x - G.languages[0]) / G.languages[2])];
       if (l) setLang(l);
-    } else if (screen === "home" && y >= 264 && y <= 320) {
-      const base = theme.template === "classic-left" ? 276 : 24;
-      if (x >= base + 20 && x < base + 476) {
-        setMethod(x < base + 254 ? "id" : "surname");
-        setValue("");
-        setScreen("form");
-      }
+    } else if (
+      screen === "home" &&
+      x >= 24 &&
+      x <= 524 &&
+      ((y >= 204 && y <= 316) || (y >= 332 && y <= 444))
+    ) {
+      setMethod(y < 332 ? "id" : "surname");
+      setValue("");
+      setScreen("form");
     } else if (screen === "form" || screen === "verify") {
       if (y >= 152 && y < 196 && screen === "form") {
         setMethod(x < 274 ? "id" : "surname");
@@ -465,7 +351,13 @@ export function HookboxDesignPage() {
   }
   return (
     <section className="hb-editor">
-      <h1>Hookbox → Dispositivos → Diseño de pantalla</h1>
+      {deviceId && (
+        <a href={window.location.pathname.replace(/\/screen\/?$/, "")}>
+          Volver al dispositivo
+        </a>
+      )}
+      <h1>Personalizar pantalla</h1>
+      <p>Vista previa de la pantalla instalada · 800 × 480</p>
       <p>
         Hotel seleccionado en CICO. Publicación remota independiente del
         firmware.
@@ -475,7 +367,7 @@ export function HookboxDesignPage() {
         <select
           aria-label="Configuración de pantalla"
           value={selectedDevice}
-          disabled={busy}
+          disabled={busy || !!deviceId}
           onChange={(e) => {
             const id = e.target.value;
             setSelectedDevice(id);
@@ -493,32 +385,34 @@ export function HookboxDesignPage() {
         </select>
       </label>
       <div className="hb-actions">
-        <button
-          disabled={busy}
-          onClick={() =>
-            void run(async () => {
-              const response = await fetch("/hookbox/steinbock-logo.png");
-              if (!response.ok)
-                throw Error("Logotipo de referencia no disponible");
-              const logo = await upload(
-                new File([await response.blob()], "steinbock.png", {
-                  type: "image/png",
-                }),
-                "logo",
-              );
-              const preset = defaultTheme("Gasthaus Steinbock");
-              preset.logo = logo;
-              preset.qr.data =
-                "https://checkin.gasthaus-steinbock.ch/guest-login.php?lang=de";
-              setTheme(preset);
-              setMessage(
-                "Tema piloto cargado como borrador; revisa y publica cuando esté listo",
-              );
-            })
-          }
-        >
-          Cargar tema piloto Steinbock
-        </button>
+        {theme.hotelName.toLowerCase().includes("steinbock") && (
+          <button
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const response = await fetch("/hookbox/steinbock-logo.png");
+                if (!response.ok)
+                  throw Error("Logotipo de referencia no disponible");
+                const logo = await upload(
+                  new File([await response.blob()], "steinbock.png", {
+                    type: "image/png",
+                  }),
+                  "logo",
+                );
+                const preset = defaultTheme("Guest House Steinbock");
+                preset.logo = logo;
+                preset.qr.data =
+                  "https://checkin.gasthaus-steinbock.ch/guest-login.php?lang=de";
+                setTheme(preset);
+                setMessage(
+                  "Identidad Steinbock cargada como borrador; revisa y publica para aplicarla",
+                );
+              })
+            }
+          >
+            Aplicar identidad Steinbock
+          </button>
+        )}
         <button
           disabled={busy || !!validation}
           onClick={() =>
@@ -568,6 +462,19 @@ export function HookboxDesignPage() {
           Usar diseño general del hotel
         </button>
       )}
+      <button
+        disabled={busy}
+        onClick={() => {
+          const restored = defaultTheme(theme.hotelName);
+          setTheme(restored);
+          setLang(restored.defaultLanguage);
+          setMessage(
+            "Plantilla predeterminada restaurada como borrador; publica para aplicarla",
+          );
+        }}
+      >
+        Restaurar plantilla predeterminada
+      </button>
       <p role="status">{validation || message}</p>
       <div className="hb-grid">
         <div className="hb-fields">
@@ -585,8 +492,7 @@ export function HookboxDesignPage() {
               value={theme.template}
               onChange={(e) => update({ template: e.target.value })}
             >
-              <option value="classic-right">Clásica · QR derecha</option>
-              <option value="classic-left">Clásica · QR izquierda</option>
+              <option value="guest-portal">Portal de huéspedes</option>
             </select>
           </label>
           <label>
@@ -600,7 +506,17 @@ export function HookboxDesignPage() {
           </label>
           {Object.entries(theme.colors).map(([key, val]) => (
             <label key={key}>
-              {key}
+              {{
+                text: "Texto",
+                primary: "Botones y acentos",
+                surface: "Tarjetas",
+                background: "Fondo",
+                buttonText: "Texto de botones",
+                secondary: "Subtítulos",
+                inputBackground: "Fondo de campos",
+                inputText: "Texto de campos",
+                inputBorder: "Borde de campos",
+              }[key] || key}
               <input
                 type="color"
                 value={val}
@@ -637,7 +553,7 @@ export function HookboxDesignPage() {
             Mostrar QR
           </label>
           <label>
-            URL QR
+            URL o contenido QR
             <input
               value={theme.qr.data}
               onChange={(e) =>
@@ -693,7 +609,7 @@ export function HookboxDesignPage() {
             <summary>Textos y traducciones · {lang}</summary>
             {TEXT_KEYS.map((k) => (
               <label key={k}>
-                {k}
+                {textLabels[k]}
                 <input
                   value={texts[k]}
                   onChange={(e) =>
@@ -745,7 +661,18 @@ export function HookboxDesignPage() {
                   setValue("");
                 }}
               >
-                {s}
+                {
+                  {
+                    home: "Inicio",
+                    form: "Identificación y teclado",
+                    waiting: "Búsqueda",
+                    verify: "Verificación",
+                    authorized: "Habitación",
+                    delivery: "Entrega",
+                    done: "Final",
+                    error: "Error",
+                  }[s]
+                }
               </button>
             ))}
           </div>
@@ -754,10 +681,14 @@ export function HookboxDesignPage() {
             width={800}
             height={480}
             onClick={click}
+            onPointerDown={startHold}
+            onPointerUp={stopHold}
+            onPointerCancel={stopHold}
+            onPointerLeave={stopHold}
             aria-label="Vista previa interactiva CrowPanel 800 por 480"
           />
           <p>
-            Vista previa MOCK: no consulta reservas ni acciona llaves.
+            Vista previa interactiva: no consulta reservas ni acciona llaves.
             Posiciones a 800 × 480. Fuente y anchos derivados del firmware. El
             antialiasing y la codificación del QR pueden variar respecto a LVGL;
             validar el aspecto final en el panel. SVG y fondos a pantalla
@@ -772,7 +703,7 @@ export function HookboxDesignPage() {
               <button
                 disabled={busy}
                 onClick={() => {
-                  setTheme(v.manifest.theme);
+                  setTheme(upgradeTheme(v.manifest.theme));
                   if (v.manifest.roomMapping)
                     setMapping(
                       v.manifest.roomMapping

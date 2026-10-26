@@ -1,9 +1,9 @@
+import {HookboxDevicesPage} from "./modules/hookbox/HookboxDevicesPage";
 import {HookboxDesignPage} from './modules/hookbox/HookboxDesignPage';
 import { useEffect, useMemo, useState } from "react";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AcceptInvitePage } from "./auth/AcceptInvitePage";
 import { LoginPage } from "./auth/LoginPage";
-import { CheckInDemoPage } from "./components/CheckInDemoPage";
 import { OnboardingGate } from "./components/OnboardingGate";
 import { AppLayout, type AppRoute } from "./layouts/AppLayout";
 import { DevicesFirmwarePage } from "./modules/admin/DevicesFirmwarePage";
@@ -48,6 +48,8 @@ function routeFromPath(): AppRoute {
     return "settings";
   }
 
+  if(/^\/devices\/[a-f0-9-]+\/screen/.test(path))return "hookbox";
+  if(path==="/devices"||path.startsWith("/devices/"))return "hotel-devices";
   if (path.startsWith("/hookbox")) return "hookbox";
   if (path.startsWith("/admin/devices")) return "devices";
 
@@ -84,6 +86,7 @@ function pathFromRoute(route: AppRoute, tenantSlug?: string) {
     return `${prefix}/profile`;
   }
 
+  if(route==="hotel-devices")return `${prefix}/devices`;
   return route === "dashboard" ? `${prefix || "/"}` : `${prefix}/${route}`;
 }
 
@@ -173,7 +176,8 @@ function PrivateApp() {
         );
 
   const page =
-    visibleRoute === "hookbox" && canConfigureTenant ? (<HookboxDesignPage key={activeTenantId} />) :
+    visibleRoute === "hotel-devices" && canConfigureTenant ? (<HookboxDevicesPage key={activeTenantId} />) :
+    visibleRoute === "hookbox" && canConfigureTenant ? (<HookboxDesignPage key={activeTenantId+window.location.pathname} deviceId={window.location.pathname.match(/\/devices\/([a-f0-9-]+)\/screen/)?.[1]||new URLSearchParams(window.location.search).get("deviceId")||undefined} />) :
     visibleRoute === "parking" ? (
       <ParkingPage />
     ) : visibleRoute === "profile" ? (
@@ -204,9 +208,7 @@ function PrivateApp() {
 }
 
 export default function App() {
-  if (window.location.pathname === "/checkin-demo") {
-    return <CheckInDemoPage />;
-  }
+
 
   if (
     /^\/public\/[^/]+\/checkout$/.test(window.location.pathname) ||

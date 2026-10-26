@@ -10,7 +10,7 @@ import {
 import type { OtaUpdate, PhysicalDevice } from "../../types/firmware";
 import { CheckoutBoxDevicePanel } from "./CheckoutBoxDevicePanel";
 
-type TenantOption={id:string;name:string};
+type TenantOption={id:string;name:string;slug?:string};
 type Props={
   device:PhysicalDevice;
   devices:PhysicalDevice[];
@@ -74,6 +74,7 @@ export function DeviceDetailPanel({device,devices,tenants,busy,run,onBack,onStar
       <div><h2>{device.name}</h2><p>{device.hardwareModel}</p></div>
       <span className={`device-status ${device.status==="ONLINE"?"online":"offline"}`}>{device.status==="ONLINE"?"● Online":"○ Offline"}</span>
     </header>
+    {device.hardwareModel==="CROWPANEL_7_V3"&&device.tenantId&&<a className="primary-button" href={`/t/${tenants.find(t=>t.id===device.tenantId)?.slug||""}/devices/${device.id}/screen`}>Personalizar pantalla</a>}
     <nav className="device-section-tabs" aria-label="Secciones del dispositivo">
       {([['summary','Resumen'],['operation',device.hardwareModel==="ESP32_DEVKIT_CHECKOUT_V1"?'Llaves y control':'Diagnóstico'],['history','Historial'],['firmware','Firmware / OTA']] as const).map(([id,label])=><button type="button" key={id} className={section===id?"active":""} onClick={()=>setSection(id)}>{label}</button>)}
     </nav>

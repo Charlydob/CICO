@@ -10,7 +10,7 @@
     "backend:dev": "node --watch backend/server.js",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --test",
-    "test:hookbox:browser": "node tests/hookbox-editor.mjs",
+    "test:hookbox:browser": "node tests/hookbox-editor.mjs && node tests/hookbox-devices.mjs",
     "test:hookbox": "node --test backend/hookbox/*.test.js"
   },
   "dependencies": {

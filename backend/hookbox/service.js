@@ -2,6 +2,7 @@ import { redactProtocol } from "./diagnostics.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   defaultTheme,
+  upgradeTheme,
   validateTheme,
   validateMapping,
   validateQuery,
@@ -38,6 +39,34 @@ function response(op) {
     mock: s.mock === true,
   };
 }
+const editorDeviceFields = {
+  id: true,
+  deviceId: true,
+  name: true,
+  hardwareModel: true,
+  status: true,
+  currentFirmwareVersion: true,
+  currentBuildId: true,
+  uiDesiredVersion: true,
+  uiAppliedVersion: true,
+  uiChecksum: true,
+  uiRejectedReason: true,
+  lastSeenAt: true,
+  events: {
+    where: {
+      type: {
+        in: [
+          "hookbox.ui.applied",
+          "hookbox.ui.rejected",
+          "hookbox.request_failed",
+        ],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: { id: true, type: true, detail: true, createdAt: true },
+  },
+};
 export function createHookboxService(prisma, provider) {
   const lock = async (tx, tenant) => {
     await tx.$queryRaw`WITH lock AS (SELECT pg_advisory_xact_lock(hashtext(${`hookbox:${tenant}`}))) SELECT 1::int FROM lock`;
@@ -78,7 +107,17 @@ export function createHookboxService(prisma, provider) {
   async function hotel(tx, tenant) {
     return tx.hookboxHotel.upsert({
       where: { tenantId: tenant },
-      create: { tenantId: tenant, draft: defaultTheme() },
+      create: {
+        tenantId: tenant,
+        draft: defaultTheme(
+          (
+            await tx.tenant.findUnique({
+              where: { id: tenant },
+              select: { name: true },
+            })
+          )?.name || "Hotel",
+        ),
+      },
       update: {},
     });
   }
@@ -213,9 +252,35 @@ export function createHookboxService(prisma, provider) {
         return a;
       });
     },
+    async devices(tenant) {
+      return transaction(tenant, (tx) =>
+        tx.device.findMany({
+          where: { tenantId: tenant, hardwareModel: "CROWPANEL_7_V3" },
+          select: editorDeviceFields,
+          orderBy: { name: "asc" },
+        }),
+      );
+    },
+    async device(tenant, id) {
+      return transaction(tenant, async (tx) => {
+        const device = await tx.device.findFirst({
+          where: {
+            id: uuid(id),
+            tenantId: tenant,
+            hardwareModel: "CROWPANEL_7_V3",
+          },
+          select: editorDeviceFields,
+        });
+        if (!device) fail("Device not found in hotel", 404);
+        return device;
+      });
+    },
     async editor(tenant, deviceId) {
       return transaction(tenant, async (tx) => ({
-        hotel: await scope(tx, tenant, deviceId),
+        hotel: await scope(tx, tenant, deviceId).then((h) => ({
+          ...h,
+          draft: upgradeTheme(h.draft),
+        })),
         versions: await tx.hookboxDesign.findMany({
           where: { tenantId: tenant, deviceId: deviceId || null },
           orderBy: { createdAt: "desc" },
@@ -223,30 +288,7 @@ export function createHookboxService(prisma, provider) {
         }),
         devices: await tx.device.findMany({
           where: { tenantId: tenant, hardwareModel: "CROWPANEL_7_V3" },
-          select: {
-            id: true,
-            deviceId: true,
-            name: true,
-            uiDesiredVersion: true,
-            uiAppliedVersion: true,
-            uiChecksum: true,
-            uiRejectedReason: true,
-            lastSeenAt: true,
-            events: {
-              where: {
-                type: {
-                  in: [
-                    "hookbox.ui.applied",
-                    "hookbox.ui.rejected",
-                    "hookbox.request_failed",
-                  ],
-                },
-              },
-              orderBy: { createdAt: "desc" },
-              take: 20,
-              select: { id: true, type: true, detail: true, createdAt: true },
-            },
-          },
+          select: editorDeviceFields,
         }),
       }));
     },
@@ -415,7 +457,19 @@ export function createHookboxService(prisma, provider) {
       return transaction(device.tenantId, async (tx) => {
         const d = await owned(tx, device),
           p = await published(tx, d);
-        if (!p) return { schemaVersion: 1, version: null };
+        if (!p)
+          return {
+            schemaVersion: 1,
+            version: null,
+            tenantId: d.tenantId,
+            hotelName:
+              (
+                await tx.tenant.findUnique({
+                  where: { id: d.tenantId },
+                  select: { name: true },
+                })
+              )?.name || "Hotel",
+          };
         if (!p) fail("Published version missing", 503);
         if (d.uiDesiredVersion !== p.id)
           await tx.device.update({
@@ -425,6 +479,8 @@ export function createHookboxService(prisma, provider) {
         return {
           schemaVersion: 1,
           version: p.id,
+          tenantId: d.tenantId,
+          hotelName: p.manifest.theme.hotelName,
           sha256: p.sha256,
           manifest: JSON.stringify(p.manifest),
         };
