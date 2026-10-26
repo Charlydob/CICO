@@ -404,13 +404,15 @@ export function createHookboxService(prisma, provider) {
             theme,
             assets,
           };
-        const hash = digest(JSON.stringify(manifest));
+        const manifestRaw = JSON.stringify(manifest);
+        const hash = digest(manifestRaw);
         await tx.hookboxDesign.create({
           data: {
             id,
             tenantId: tenant,
             deviceId: input.deviceId || null,
             manifest,
+            manifestRaw,
             sha256: hash,
             createdBy: user,
           },
@@ -470,7 +472,12 @@ export function createHookboxService(prisma, provider) {
                 })
               )?.name || "Hotel",
           };
-        if (!p) fail("Published version missing", 503);
+        const manifest = p.manifestRaw ?? JSON.stringify(p.manifest);
+        if (digest(manifest) !== p.sha256)
+          fail(
+            "Published design requires republishing to preserve exact bytes",
+            503,
+          );
         if (d.uiDesiredVersion !== p.id)
           await tx.device.update({
             where: { id: d.id },
@@ -482,7 +489,7 @@ export function createHookboxService(prisma, provider) {
           tenantId: d.tenantId,
           hotelName: p.manifest.theme.hotelName,
           sha256: p.sha256,
-          manifest: JSON.stringify(p.manifest),
+          manifest,
         };
       });
     },
