@@ -474,10 +474,19 @@ export function createHookboxService(prisma, provider) {
           };
         const manifest = p.manifestRaw ?? JSON.stringify(p.manifest);
         if (digest(manifest) !== p.sha256)
-          fail(
-            "Published design requires republishing to preserve exact bytes",
-            503,
-          );
+          return {
+            schemaVersion: 1,
+            version: null,
+            tenantId: d.tenantId,
+            hotelName:
+              (
+                await tx.tenant.findUnique({
+                  where: { id: d.tenantId },
+                  select: { name: true },
+                })
+              )?.name || "Hotel",
+            reason: "DESIGN_REPUBLISH_REQUIRED",
+          };
         if (d.uiDesiredVersion !== p.id)
           await tx.device.update({
             where: { id: d.id },
