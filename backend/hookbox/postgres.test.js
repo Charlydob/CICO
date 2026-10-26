@@ -101,6 +101,21 @@ test(
         reloaded.sha256,
       );
       assert.equal(reloaded.sha256, p.sha256);
+      // Historical rows with lost original bytes must never send a corrupt design,
+      // but still communicate ownership so a transferred device clears old data.
+      await db.hookboxDesign.update({
+        where: { id: p.version },
+        data: { manifestRaw: null },
+      });
+      const rejectedLegacy = await s.sync(a);
+      assert.equal(rejectedLegacy.version, null);
+      assert.equal(rejectedLegacy.tenantId, ta);
+      assert.equal(rejectedLegacy.reason, "DESIGN_REPUBLISH_REQUIRED");
+      assert.equal(rejectedLegacy.manifest, undefined);
+      await db.hookboxDesign.update({
+        where: { id: p.version },
+        data: { manifestRaw: stored.manifestRaw },
+      });
 
       assert.equal((await s.sync(b)).version, null);
       await assert.rejects(

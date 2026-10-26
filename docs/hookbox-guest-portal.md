@@ -8,7 +8,7 @@ Editable properties include hotel identity, logo, decoration, all four translati
 
 ## Design byte integrity
 
-`manifest` is JSONB for editor history and queries. PostgreSQL may reorder its object keys; serializing that value after retrieval cannot reconstruct the original publication bytes. `manifestRaw` stores the exact UTF-8 JSON string hashed during publication. Device sync checks and returns that string unchanged, with the original SHA-256. The migration adds a nullable TEXT column without rewriting published history. Legacy rows without exact bytes are served only if their reconstructed bytes already match their stored hash; otherwise a new publication is required. Integrity checks remain enabled.
+`manifest` is JSONB for editor history and queries. PostgreSQL may reorder its object keys; serializing that value after retrieval cannot reconstruct the original publication bytes. `manifestRaw` stores the exact UTF-8 JSON string hashed during publication. Device sync checks and returns that string unchanged, with the original SHA-256. The migration adds a nullable TEXT column without rewriting published history. Legacy rows without exact bytes are served only if their reconstructed bytes already match their stored hash; otherwise only hotel identity is returned, with no design, until a new publication is made. This still lets a reassigned device clear its previous hotel while retaining the same hotel’s last valid offline design. Integrity checks remain enabled.
 
 ## Verification
 
