@@ -678,10 +678,11 @@ export function createHookboxService(prisma, provider) {
         await owned(tx, device);
         const op = await operation(tx, device, input.request_id);
         const s = op.state;
-        if (s.status === "AUTHORIZED") {
+        if (["AUTHORIZED", "RELEASING", "UNCERTAIN", "COMPLETE"].includes(s.status)) {
           if (s.reservationId !== input.stay_unit_id ||
               !s.rooms.some((r) => r.room === input.room))
             fail("Authorization does not match previous webhook", 409);
+          // A retry is acknowledged but never authorizes a second delivery.
           return { ...response(op), duplicate: true };
         }
         if (!["CHALLENGE", "INSUFFICIENT"].includes(s.status))
