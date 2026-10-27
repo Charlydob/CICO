@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { hookboxRequest } from "../../services/backendApi";
+import { hookboxRequest, adminHookboxIntegrationRequest } from "../../services/backendApi";
 import { getBackendUrl } from "../../services/backendConfigService";
 
 type Source = "room" | "checkin_at" | "stay_unit_id" | "request_id" | "last_name" | "reservation_code" | "constant";
@@ -22,21 +22,26 @@ const sources: { value: Source; label: string; sample: string }[] = [
   { value: "constant", label: "Texto fijo personalizado", sample: "" },
 ];
 
-export function HookboxIntegrationPanel({ deviceId }: { deviceId: string }) {
+export function HookboxIntegrationPanel({ deviceId, platformAdmin = false }: { deviceId: string; platformAdmin?: boolean }) {
   const [config, setConfig] = useState<Contract | null>(null);
   const [outbound, setOutbound] = useState<Outbound | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [newSecret, setNewSecret] = useState("");
+  function api<T>(path: string, body?: unknown): Promise<T> {
+    return platformAdmin
+      ? adminHookboxIntegrationRequest<T>(deviceId, path, body)
+      : hookboxRequest<T>("devices/" + deviceId + "/integration" + path, body);
+  }
   useEffect(() => {
     let mounted = true;
     setConfig(null); setOutbound(null); setError(""); setNewSecret("");
-    void hookboxRequest<Contract>("devices/" + deviceId + "/integration")
+    void (platformAdmin ? adminHookboxIntegrationRequest<Contract>(deviceId) : hookboxRequest<Contract>("devices/" + deviceId + "/integration"))
       .then((result) => { if (mounted) { setConfig(result); setOutbound(result.outbound); } })
       .catch((err: Error) => { if (mounted) setError(err.message); });
     return () => { mounted = false; };
-  }, [deviceId]);
+  }, [deviceId, platformAdmin]);
 
   function changeField(index: number, patch: Partial<Field>) {
     setOutbound((old) => old ? {
@@ -107,7 +112,7 @@ export function HookboxIntegrationPanel({ deviceId }: { deviceId: string }) {
       </label>
       <small>Guardar no envía ninguna petición al hotel. El envío real sólo debe activarse al integrar su contrato definitivo.</small>
       <button type="button" className="primary-button" disabled={busy} onClick={() => void perform(
-        () => hookboxRequest<Contract>("devices/" + deviceId + "/integration", { outbound }),
+        () => api<Contract>("", { outbound }),
         "Configuración guardada para este dispositivo. No se ha enviado ningún POST.",
       )}>Guardar configuración</button>
     </div>
@@ -120,7 +125,7 @@ export function HookboxIntegrationPanel({ deviceId }: { deviceId: string }) {
       <p>Cabecera de seguridad: <code>X-Cico-Webhook-Secret</code>. {config?.webhookEnabled ? "Secreto configurado." : "Aún no hay secreto configurado."}</p>
       <button type="button" disabled={busy} onClick={() => {
         if (config?.webhookEnabled && !window.confirm("¿Generar un secreto nuevo? El anterior dejará de funcionar.")) return;
-        void perform(() => hookboxRequest<Contract>("devices/" + deviceId + "/integration/rotate-secret", {}), "Secreto generado. Cópialo ahora: sólo se muestra una vez.");
+        void perform(() => api<Contract>("/rotate-secret", {}), "Secreto generado. Cópialo ahora: sólo se muestra una vez.");
       }}>{config?.webhookEnabled ? "Renovar secreto" : "Generar secreto"}</button>
       {newSecret && <div><strong>Secreto (guardar y entregar por un canal privado)</strong>
         <code style={{ display: "block", overflowWrap: "anywhere" }}>{newSecret}</code>
