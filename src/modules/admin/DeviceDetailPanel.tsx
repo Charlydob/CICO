@@ -9,6 +9,7 @@ import {
 } from "../../services/backendApi";
 import type { OtaUpdate, PhysicalDevice } from "../../types/firmware";
 import { CheckoutBoxDevicePanel } from "./CheckoutBoxDevicePanel";
+import { HookboxIntegrationPanel } from "./HookboxIntegrationPanel";
 
 type TenantOption={id:string;name:string;slug?:string};
 type Props={
@@ -43,7 +44,7 @@ function updateState(update:OtaUpdate) {
 }
 
 export function DeviceDetailPanel({device,devices,tenants,busy,run,onBack,onStartUpdate}:Props) {
-  const [section,setSection]=useState<"summary"|"operation"|"history"|"firmware">("summary");
+  const [section,setSection]=useState<"summary"|"operation"|"history"|"firmware"|"integration">("summary");
   const [commandOpen,setCommandOpen]=useState(false);
   const [commandPage,setCommandPage]=useState(1);
   const [commands,setCommands]=useState(device.commands||[]);
@@ -77,7 +78,10 @@ export function DeviceDetailPanel({device,devices,tenants,busy,run,onBack,onStar
     {device.hardwareModel==="CROWPANEL_7_V3"&&device.tenantId&&<a className="primary-button" href={`/t/${tenants.find(t=>t.id===device.tenantId)?.slug||""}/devices/${device.id}/screen`}>Customize display</a>}
     <nav className="device-section-tabs" aria-label="Device sections">
       {([['summary','Summary'],['operation',device.hardwareModel==="ESP32_DEVKIT_CHECKOUT_V1"?'Keys and controls':'Diagnostics'],['history','History'],['firmware','Firmware / OTA']] as const).map(([id,label])=><button type="button" key={id} className={section===id?"active":""} onClick={()=>setSection(id)}>{label}</button>)}
+      {device.hardwareModel==="CROWPANEL_7_V3"&&device.tenantId&&<button type="button" className={section==="integration"?"active":""} onClick={()=>setSection("integration")}>Conexión con hotel</button>}
     </nav>
+
+    {section==="integration"&&device.tenantId&&<HookboxIntegrationPanel deviceId={device.id}/>}
 
     {section==="summary"&&<>
       <div className="device-summary-grid">{summary.map(([label,value])=><div className="device-summary-item" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
