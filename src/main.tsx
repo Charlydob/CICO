@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { I18nProvider } from "./i18n";
 import "./styles.css";
+import "./customer-workspace.css";
 import { startFrontendVersionChecks } from "./versionCheck";
 
 startFrontendVersionChecks();

@@ -47,7 +47,7 @@ export interface CheckoutEvent {
   source: CheckoutSource;
   sourceIdentifier?: string;
   timestamp: string;
-  status: "registered" | "duplicate" | "ignored";
+  status: "registered" | "duplicate" | "ignored" | "reversed";
   metadata?: Record<string, unknown>;
 }
 

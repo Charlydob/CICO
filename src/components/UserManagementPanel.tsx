@@ -1,3 +1,4 @@
+import {useAuth} from "../auth/AuthContext";
 import { Ban, Copy, RefreshCw, RotateCw, UserPlus } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import type { TenantMember, UserInvitation } from "../types/tenant";
@@ -40,6 +41,9 @@ export function UserManagementPanel({
   onRefresh,
   onNotice,
 }: UserManagementPanelProps) {
+  const {user,session,activeTenantId}=useAuth();
+  const limitedManager=!session?.isPlatformAdmin&&session?.memberships.find(m=>m.tenantId===activeTenantId)?.role==="manager";
+  const selfProtected=(member:TenantMember)=>!session?.isPlatformAdmin&&(member.userId===user?.id||(limitedManager&&member.role==="tenant_admin"));
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<TenantRole>("staff");
   const [busy, setBusy] = useState("");
@@ -67,17 +71,18 @@ export function UserManagementPanel({
     event.preventDefault();
     await run("invite", async () => {
       const invitation = await onInvite({ email, role });
+      const emailNotice=invitation.delivery?.status==="accepted"?"Email accepted for delivery. ":invitation.delivery?.status==="failed"?"Email could not be sent. ":"Email sending is not configured. ";
       setEmail("");
       setRole("staff");
       if (invitation.inviteUrl) {
         try {
           await copyText(invitation.inviteUrl);
-          notify("Invitation created and link copied.");
+          notify(emailNotice+"Secure invitation link copied.");
         } catch {
-          notify("Invitation created. Use Copy to copy the link.");
+          notify(emailNotice+"Use Copy to share the secure invitation link.");
         }
       } else {
-        notify("Invitation created.");
+        notify(emailNotice+"Invitation created.");
       }
     });
   }
@@ -91,6 +96,7 @@ export function UserManagementPanel({
   }
 
   async function regenerateInvitation(invitationId: string) {
+    if(!window.confirm("Create a new invitation link? The previous link will stop working."))return;
     await run(`regenerate-${invitationId}`, async () => {
       const invitation = await onRegenerateInvitation(invitationId);
       if (invitation.inviteUrl) {
@@ -104,7 +110,7 @@ export function UserManagementPanel({
     <div className={compact ? "user-management compact" : "user-management"}>
       {localNotice && <div className={localNotice.includes("failed") ? "notice error" : "notice"}>{localNotice}</div>}
 
-      <form className="settings-form compact-form" onSubmit={submitInvite}>
+      <details className="invite-disclosure"><summary>Invite employee by email</summary><form className="settings-form compact-form" onSubmit={submitInvite}>
         <div className="settings-split">
           <label>
             <span>Email</span>
@@ -119,7 +125,7 @@ export function UserManagementPanel({
             <select value={role} onChange={(event) => setRole(event.target.value as TenantRole)}>
               <option value="staff">Staff</option>
               <option value="manager">Manager</option>
-              <option value="tenant_admin">Tenant admin</option>
+              {!limitedManager&&<option value="tenant_admin">Hotel owner</option>}
             </select>
           </label>
         </div>
@@ -135,7 +141,7 @@ export function UserManagementPanel({
             </button>
           )}
         </div>
-      </form>
+      </form></details>
 
       <div className="user-management-block">
         <div className="section-heading inline">
@@ -147,7 +153,6 @@ export function UserManagementPanel({
             <span>Email</span>
             <span>Name / alias</span>
             <span>Role</span>
-            <span>Telegram</span>
             <span>Actions</span>
           </div>
           {members.length ? (
@@ -170,17 +175,17 @@ export function UserManagementPanel({
                       onChangeRole(member.id, event.target.value as TenantRole),
                     )
                   }
-                  disabled={busy !== ""}
+                  disabled={busy !== ""||selfProtected(member)}
                 >
                   <option value="staff">Staff</option>
                   <option value="manager">Manager</option>
-                  <option value="tenant_admin">Tenant admin</option>
+                  <option value="tenant_admin" disabled={limitedManager}>Hotel owner</option>
                 </select>
-                <span>{member.user.telegramUserId ? `Connected${member.user.telegramUsername ? ` · @${member.user.telegramUsername}` : ""}` : "Not connected"}</span>
+
                 <button
                   type="button"
-                  onClick={() => void run(`revoke-member-${member.id}`, () => onRevokeMember(member.id))}
-                  disabled={busy !== ""}
+                  onClick={() => {if(window.confirm("Revoke this employee's access to this hotel?"))void run(`revoke-member-${member.id}`, () => onRevokeMember(member.id))}}
+                  disabled={busy !== ""||selfProtected(member)}
                 >
                   <Ban size={14} />
                   Revoke
@@ -195,7 +200,7 @@ export function UserManagementPanel({
 
       <div className="user-management-block">
         <div className="section-heading inline">
-          <h2>Pending invitations</h2>
+          <h2>Invitations</h2>
           <span>{invitations.length}</span>
         </div>
         <div className="invite-table">
@@ -210,11 +215,11 @@ export function UserManagementPanel({
           {invitations.length ? (
             invitations.map((invitation) => (
               <div key={invitation.id} className="invite-row">
-                <span>{invitation.email}</span>
-                <span>{invitation.role}</span>
-                <span>{formatDate(invitation.createdAt)}</span>
-                <span>{formatDate(invitation.expiresAt)}</span>
-                <span>{invitation.status}</span>
+                <span data-label="Email">{invitation.email}</span>
+                <span data-label="Role">{invitation.role==='tenant_admin'?'Hotel owner':invitation.role==='manager'?'Manager':'Staff'}</span>
+                <span data-label="Created">{formatDate(invitation.createdAt)}</span>
+                <span data-label="Expires">{formatDate(invitation.expiresAt)}</span>
+                <span data-label="Status">{invitation.status}</span>
                 <div className="button-row">
                   <button
                     type="button"

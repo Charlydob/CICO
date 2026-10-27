@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID,createCipheriv,createDecipheriv } from "node:crypto";
 import { sendUserInvitationNotification } from "./notificationService.js";
 import { createLoginSession, hashPassword, verifyPassword } from "./sessionService.js";
 import { displayNameForMembership } from "./userDisplayService.js";
@@ -76,6 +76,9 @@ function generateToken() {
   return randomBytes(32).toString("base64url");
 }
 
+function invitationKey(){return createHash("sha256").update("cico-invitation-v1:"+(process.env.SESSION_SECRET||"dev-session-secret")).digest();}
+function encryptToken(token){const iv=randomBytes(12),cipher=createCipheriv("aes-256-gcm",invitationKey(),iv),encrypted=Buffer.concat([cipher.update(token,"utf8"),cipher.final()]);return [iv,cipher.getAuthTag(),encrypted].map(v=>v.toString("base64url")).join(".");}
+function decryptToken(value){try{const [iv,tag,data]=String(value||"").split(".").map(v=>Buffer.from(v,"base64url"));const cipher=createDecipheriv("aes-256-gcm",invitationKey(),iv);cipher.setAuthTag(tag);return Buffer.concat([cipher.update(data),cipher.final()]).toString("utf8");}catch{throw Object.assign(Error("Renew this invitation before copying its link."),{statusCode:409})}}
 function tokenHash(token) {
   return createHash("sha256").update(String(token || "")).digest("hex");
 }
@@ -97,7 +100,7 @@ export function getTenantRole(session, tenantId = session.activeTenantId) {
 export function requireUserManager(session, tenantId) {
   const role = getTenantRole(session, tenantId);
 
-  if (role !== "platform_admin" && role !== "tenant_admin") {
+  if (!["platform_admin","tenant_admin","manager"].includes(role)) {
     const error = new Error("Tenant admin access is required.");
     error.statusCode = 403;
     throw error;
@@ -176,6 +179,7 @@ export async function createUserInvitation(database, session, tenantId, input, o
   const role = cleanString(input.role);
   assertValidEmail(email);
   assertInvitableRole(role);
+  if(!session.isPlatformAdmin&&getTenantRole(session,tenantId)==="manager"&&role==="tenant_admin")throw Object.assign(Error("Only the hotel owner can grant owner access."),{statusCode:403});
 
   const timestamp = now();
   const token = generateToken();
@@ -184,7 +188,7 @@ export async function createUserInvitation(database, session, tenantId, input, o
     email,
     tenantId,
     role,
-    tokenHash: tokenHash(token),
+    tokenHash: tokenHash(token),encryptedToken:encryptToken(token),
     invitedBy: session.user.id,
     createdAt: timestamp,
     expiresAt: input.expiresAt || addDays(timestamp, INVITATION_TTL_DAYS),
@@ -195,9 +199,8 @@ export async function createUserInvitation(database, session, tenantId, input, o
   await database.setRecord("userInvitations", invitation.id, invitation);
 
   const inviteUrl = inviteUrlFromToken(token, options.baseUrl);
-  await sendUserInvitationNotification({ invitation, tenant, inviteUrl });
-
-  return publicInvitation(invitation, tenant, inviteUrl);
+  const delivery=await sendUserInvitationNotification({ invitation, tenant, inviteUrl });
+  return {...publicInvitation(invitation, tenant, inviteUrl),delivery:{status:delivery.status}};
 }
 
 export async function getInvitationByToken(database, token) {
@@ -232,17 +235,16 @@ export async function getInvitationLink(database, session, tenantId, invitationI
     throw error;
   }
 
-  const token = generateToken();
-  await database.setRecord("userInvitations", invitation.id, {
-    ...invitation,
-    tokenHash: tokenHash(token),
-  });
+  if(new Date(invitation.expiresAt).getTime()<=Date.now())throw Object.assign(Error("Invitation has expired. Renew it to continue."),{statusCode:400});
+  const token=decryptToken(invitation.encryptedToken);
+  if(tokenHash(token)!==invitation.tokenHash)throw Object.assign(Error("Renew this invitation before copying its link."),{statusCode:409});
 
   return { inviteUrl: inviteUrlFromToken(token, baseUrl) };
 }
 
-export async function revokeUserInvitation(database, session, tenantId, invitationId) {
+export async function revokeUserInvitation(database, session, tenantId, invitationId,locked=false) {
   requireUserManager(session, tenantId);
+  if(database.withInvitationLock&&!locked)return database.withInvitationLock({id:invitationId},tx=>revokeUserInvitation(tx,session,tenantId,invitationId,true));
   const invitation = await database.getRecord("userInvitations", invitationId);
 
   if (!invitation || invitation.tenantId !== tenantId) {
@@ -257,8 +259,9 @@ export async function revokeUserInvitation(database, session, tenantId, invitati
   return publicInvitation(next, tenant);
 }
 
-export async function regenerateUserInvitation(database, session, tenantId, invitationId, baseUrl) {
+export async function regenerateUserInvitation(database, session, tenantId, invitationId, baseUrl,locked=false) {
   requireUserManager(session, tenantId);
+  if(database.withInvitationLock&&!locked)return database.withInvitationLock({id:invitationId},tx=>regenerateUserInvitation(tx,session,tenantId,invitationId,baseUrl,true));
   const invitation = await database.getRecord("userInvitations", invitationId);
 
   if (!invitation || invitation.tenantId !== tenantId) {
@@ -277,7 +280,7 @@ export async function regenerateUserInvitation(database, session, tenantId, invi
   const token = generateToken();
   const next = {
     ...invitation,
-    tokenHash: tokenHash(token),
+    tokenHash: tokenHash(token),encryptedToken:encryptToken(token),
     expiresAt: addDays(timestamp, INVITATION_TTL_DAYS),
     revokedAt: null,
   };
@@ -285,11 +288,12 @@ export async function regenerateUserInvitation(database, session, tenantId, invi
   await database.setRecord("userInvitations", invitation.id, next);
   const tenant = await database.getRecord("tenants", tenantId);
   const inviteUrl = inviteUrlFromToken(token, baseUrl);
-  await sendUserInvitationNotification({ invitation: next, tenant, inviteUrl });
-  return publicInvitation(next, tenant, inviteUrl);
+  const delivery=await sendUserInvitationNotification({ invitation: next, tenant, inviteUrl });
+  return {...publicInvitation(next, tenant, inviteUrl),delivery:{status:delivery.status}};
 }
 
-export async function acceptUserInvitation(database, input, token) {
+export async function acceptUserInvitation(database, input, token,locked=false) {
+  if(database.withInvitationLock&&!locked)return database.withInvitationLock({hash:tokenHash(cleanString(token))},tx=>acceptUserInvitation(tx,input,token,true));
   const cleanToken = cleanString(token);
   const invitation = (await database.listRecords("userInvitations")).find(
     (candidate) => candidate.tokenHash === tokenHash(cleanToken),
@@ -332,7 +336,7 @@ export async function acceptUserInvitation(database, input, token) {
   let user = (await database.listRecords("users")).find((candidate) => candidate.email === email);
 
   if (user) {
-    if (!(await verifyPassword(user.passwordHash, password))) {
+    if (user.active===false || !(await verifyPassword(user.passwordHash, password))) {
       const error = new Error("Invalid email or password.");
       error.statusCode = 401;
       throw error;
@@ -378,6 +382,7 @@ export async function acceptUserInvitation(database, input, token) {
 export async function updateTenantMembershipRole(database, session, tenantId, membershipIdValue, role) {
   requireUserManager(session, tenantId);
   assertInvitableRole(role);
+  if(!session.isPlatformAdmin&&getTenantRole(session,tenantId)==="manager"&&role==="tenant_admin")throw Object.assign(Error("Only the hotel owner can grant owner access."),{statusCode:403});
 
   const membership = await database.getRecord("memberships", membershipIdValue);
   if (!membership || membership.tenantId !== tenantId) {
@@ -386,6 +391,8 @@ export async function updateTenantMembershipRole(database, session, tenantId, me
     throw error;
   }
 
+  if(!session.isPlatformAdmin&&membership.userId===session.user.id)throw Object.assign(Error("You cannot change your own permissions."),{statusCode:403});
+  if(!session.isPlatformAdmin&&getTenantRole(session,tenantId)==="manager"&&(membership.role==="tenant_admin"||role==="tenant_admin"))throw Object.assign(Error("Only the hotel owner can manage owner access."),{statusCode:403});
   const next = { ...membership, role, updatedAt: now() };
   await database.setRecord("memberships", membership.id, next);
   return next;
@@ -401,6 +408,7 @@ export async function revokeTenantMembership(database, session, tenantId, member
     throw error;
   }
 
+  if(!session.isPlatformAdmin&&(membership.userId===session.user.id||(getTenantRole(session,tenantId)==="manager"&&membership.role==="tenant_admin")))throw Object.assign(Error("You cannot revoke this access."),{statusCode:403});
   await database.deleteRecord("memberships", membership.id);
   return { success: true };
 }

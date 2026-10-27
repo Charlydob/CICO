@@ -19,7 +19,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useI18n, type TranslationKey } from "../i18n";
 
 export type AppRoute =
-  | "operations"
+  | "technical-settings"
   | "dashboard"
   | "housekeeping"
   | "parking"
@@ -42,7 +42,7 @@ interface AppLayoutProps {
 }
 
 const routeIcons = {
-  operations: ClipboardCheck,
+  "technical-settings":Wrench,
   dashboard: Home,
   housekeeping: Sparkles,
   parking: CarFront,
@@ -67,7 +67,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
     (membership) => membership.tenantId === activeTenantId,
   )?.role || (session?.isPlatformAdmin && activeTenantId ? "platform_admin" : undefined);
   const canConfigureTenant =
-    activeTenantRole === "tenant_admin" || activeTenantRole === "platform_admin";
+    ["tenant_admin","manager","platform_admin"].includes(activeTenantRole||"");
   const displayTenantName = activeTenant?.basicInfo?.displayName || activeTenant?.name || APP_NAME;
   const userInitial = (session?.user.username || session?.user.displayName || session?.user.email || "?")
     .slice(0, 1)
@@ -79,7 +79,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
       <button
         key={target}
         type="button"
-        className={`${(route === target || (target === "admin" && route === "devices")) ? "active" : ""} ${className}`.trim()}
+        className={`${(route === target || (target === "admin" && route === "devices") || (target === "settings" && ["users","hookbox","hotel-devices","integrations"].includes(route))) ? "active" : ""} ${className}`.trim()}
         onClick={() => onRouteChange(target)}
       >
         <Icon size={17} />
@@ -111,43 +111,8 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
     onRouteChange(nextRoute);
   }
 
-  const mobileNav = (() => {
-    if (!activeTenantId) {
-      return session?.isPlatformAdmin ? [{ route: "admin" as AppRoute, label: t("admin") }] : [];
-    }
+  const mobileNav:Array<{route:AppRoute;label:string;Icon?:typeof Home}>=activeTenantId?[{route:"dashboard",label:t("home")},...enabled.filter(m=>["checkout","parking"].includes(m.id)).map(m=>({route:m.id as AppRoute,label:m.id==="checkout"?t("checkout"):t("parking")})),...(canConfigureTenant?[{route:"settings" as AppRoute,label:t("settings")}]:[]),{route:"profile",label:t("profile")}]:session?.isPlatformAdmin?[{route:"admin",label:t("admin")}]:[];
 
-    if (activeTenantRole === "staff") {
-      return [
-        { route: "dashboard" as AppRoute, label: t("home") },
-        { route: "profile" as AppRoute, label: t("profile") },
-      ];
-    }
-
-    if (activeTenantRole === "manager") {
-      return [
-        { route: "dashboard" as AppRoute, label: t("home") },
-        { route: "operations" as AppRoute, label: t("operations") },
-        { route: "profile" as AppRoute, label: t("profile") },
-      ];
-    }
-
-    if (activeTenantRole === "tenant_admin") {
-      return [
-        { route: "dashboard" as AppRoute, label: t("home") },
-        { route: "operations" as AppRoute, label: t("operations") },
-        { route: "users" as AppRoute, label: t("team") },
-        { route: "settings" as AppRoute, label: t("more"), Icon: MoreHorizontal },
-      ];
-    }
-
-    return [
-      { route: "dashboard" as AppRoute, label: t("home") },
-      { route: "operations" as AppRoute, label: t("operations") },
-      { route: "users" as AppRoute, label: t("team") },
-      { route: "admin" as AppRoute, label: t("admin") },
-      { route: "profile" as AppRoute, label: t("profile") },
-    ];
-  })();
 
   return (
     <div className="platform-shell">
@@ -158,7 +123,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
         </div>
         <div className="mobile-topbar-actions">
 
-          {session && session.tenants.length > 1 && (
+          {session?.isPlatformAdmin && session.tenants.length > 1 && (
             <select
               aria-label="Hotel"
               value={activeTenantId || ""}
@@ -180,9 +145,9 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
           <strong>{APP_NAME}</strong>
           <span>{session?.user.email}</span>
         </div>
-        {session?.tenants.length ? (
+        {session?.isPlatformAdmin && session.tenants.length ? (
           <label className="tenant-picker">
-            <span>Tenant</span>
+            <span>Hotel</span>
             <select
               value={activeTenantId || ""}
               onChange={(event) => void handleTenantChange(event.target.value)}
@@ -197,27 +162,19 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
           </label>
         ) : (
           <div className="tenant-empty">
-            <span>Tenant</span>
-            <strong>No tenant selected</strong>
+            <span>Hotel</span>
+            <strong>{displayTenantName}</strong>
           </div>
         )}
         <nav className="sidebar-nav" aria-label="Application navigation">
           {activeTenantId && (
             <>
-              {navButton("dashboard", t("dashboard"))}
-              {navButton("operations", t("operations"))}
+              {navButton("dashboard", t("home"))}
               {enabled.some((module) => module.id === "parking") && navButton("parking", t("parking"))}
               {enabled.some((module) => module.id === "checkout") && navButton("checkout", t("checkout"))}
               {canConfigureTenant && (
                 <>
-                  <span>{t("team")}</span>
-                  {navButton("reservations", t("reservations"))}
-                  <span>{t("settings")}</span>
-                  {navButton("hotel-devices", "Mis dispositivos HOOKBOX")}
-                  {navButton("hookbox", "Diseño general de pantalla")}
-                  {navButton("integrations", "Integrations")}
                   {navButton("settings", t("settings"))}
-                  {navButton("users", t("team"))}
                 </>
               )}
               {navButton("profile", t("profile"))}
@@ -226,7 +183,8 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
           {session?.isPlatformAdmin && (
             <>
               <span>{t("admin")}</span>
-              {navButton("admin", "Platform Admin")}
+              {navButton("admin", "Superadmin")}
+              {activeTenantId&&navButton("technical-settings", "Technical integrations")}
 
             </>
           )}
@@ -247,7 +205,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
               <button
                 key={`${item.route}-${item.label}`}
                 type="button"
-                className={(route === item.route || (item.route === "admin" && route === "devices")) ? "active" : ""}
+                className={(route === item.route || (item.route === "admin" && route === "devices") || (item.route === "settings" && ["users","hookbox","hotel-devices","integrations"].includes(route))) ? "active" : ""}
                 onClick={() => onRouteChange(item.route)}
               >
                 <Icon size={18} />

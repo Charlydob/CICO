@@ -234,7 +234,7 @@ test("claim, bed_done, cleaning_done and direct complete update housekeeping sta
   assert.equal(database.data.rooms[room.id].status, "ready");
 });
 
-test("complete directly fills missing bed and cleaning while preserving existing authors", async () => {
+test("completion requires independent tasks and preserves existing authors", async () => {
   const database = baseDatabase();
   const room = await createRoom(database, "hotel-a", { number: "302", status: "occupied" });
   const checkout = await registerCheckout(database, "hotel-a", room.id, "manual");
@@ -248,6 +248,8 @@ test("complete directly fills missing bed and cleaning while preserving existing
   });
   const priorBedAt = database.data.checkoutEvents[checkout.event.id].metadata.housekeeping.bedDoneAt;
 
+  await assert.rejects(applyHousekeepingAction(database,{tenantId:"hotel-a",actor:actor(database,"staff"),action:"complete",eventId:checkout.event.id}),{statusCode:409});
+  await applyHousekeepingAction(database,{tenantId:"hotel-a",actor:actor(database,"staff"),action:"cleaning_done",eventId:checkout.event.id});
   await applyHousekeepingAction(database, {
     tenantId: "hotel-a",
     actor: actor(database, "staff"),
@@ -340,4 +342,32 @@ test("assignment sends Web Push only to the assigned user", async () => {
   } finally {
     reset();
   }
+});
+
+test('expected departures, independent undo, manager corrections and checkout reversal preserve history',async()=>{
+ const db=baseDatabase(),room=await createRoom(db,'hotel-a',{number:'999',status:'occupied'}),today=new Date().toISOString().slice(0,10);
+ const {setTodayCheckoutRooms}=await import('./checkoutService.js');await setTodayCheckoutRooms(db,'hotel-a',[room.id],today);
+ assert.equal(db.data.rooms[room.id].status,'occupied');assert.equal(Object.keys(db.data.checkoutEvents).length,0);
+ const result=await registerCheckout(db,'hotel-a',room.id,'manual');const call=(action,user='staff',confirmed=false)=>applyHousekeepingAction(db,{tenantId:'hotel-a',actor:actor(db,user),eventId:result.event.id,action,confirmed});
+ await call('bed_done');await call('cleaning_done');await call('undo_bed');assert.equal(db.data.checkoutEvents[result.event.id].metadata.housekeeping.bedDoneAt,undefined);assert.ok(db.data.checkoutEvents[result.event.id].metadata.housekeeping.cleaningDoneAt);
+ await assert.rejects(call('complete'),{statusCode:409});await call('bed_done');await call('complete');assert.equal((await call('complete')).duplicate,true);
+ await assert.rejects(call('reopen'),{statusCode:403});await assert.rejects(call('reopen','manager'),{statusCode:409});await call('reopen','manager',true);assert.equal(db.data.rooms[room.id].status,'cleaning');
+ await call('undo_cleaning');await call('cleaning_done');await call('complete');await assert.rejects(call('undo_checkout'),{statusCode:403});await call('undo_checkout','manager',true);
+ assert.equal(db.data.checkoutEvents[result.event.id].status,'reversed');assert.equal(db.data.checkoutEvents[result.event.id].occupancyCycleId,null);assert.equal(db.data.rooms[room.id].status,'occupied');assert.equal((await getHousekeepingBoard(db,'hotel-a')).items.length,0);
+ const again=await registerCheckout(db,'hotel-a',room.id,'manual');assert.equal(again.duplicate,false);assert.notEqual(again.event.id,result.event.id);assert.ok(db.data.checkoutEvents[result.event.id].metadata.audit.some(e=>e.action==='undo_checkout'));
+});
+
+
+test('a manual new stay and a newer checkout prevent edits to historical housekeeping',async()=>{
+ const db=baseDatabase(),room=await createRoom(db,'hotel-a',{number:'777',status:'occupied'}),checkout=await registerCheckout(db,'hotel-a',room.id,'manual'),call=action=>applyHousekeepingAction(db,{tenantId:'hotel-a',actor:actor(db,'manager'),eventId:checkout.event.id,action,confirmed:true});
+ for(const action of ['bed_done','cleaning_done','complete'])await call(action);
+ const {updateManagedRoom}=await import('./checkoutService.js');await updateManagedRoom(db,'hotel-a',room.id,{status:'occupied'},'manager');
+ await assert.rejects(call('reopen'),{statusCode:409});await assert.rejects(call('undo_checkout'),{statusCode:409});
+ const newer=await registerCheckout(db,'hotel-a',room.id,'manual');assert.notEqual(newer.event.id,checkout.event.id);await assert.rejects(call('bed_done'),{statusCode:409});
+});
+
+test('hotel managers cannot assign work to an unrelated global administrator',async()=>{
+ const db=baseDatabase();db.data.users.platform={id:'platform',active:true,globalRole:'platform_admin',email:'platform@example.test'};
+ const room=await createRoom(db,'hotel-a',{number:'778',status:'occupied'}),checkout=await registerCheckout(db,'hotel-a',room.id,'manual');
+ await assert.rejects(applyHousekeepingAction(db,{tenantId:'hotel-a',actor:actor(db,'manager'),eventId:checkout.event.id,action:'assign',assignmentTargetUserId:'platform'}),{statusCode:400});
 });

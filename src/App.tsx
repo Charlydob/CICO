@@ -13,7 +13,7 @@ import { PublicCheckoutPage } from "./modules/checkout/PublicCheckoutPage";
 import { DashboardPage } from "./modules/dashboard/DashboardPage";
 import { ParkingPage } from "./modules/parking/ParkingPage";
 import { ProfilePage } from "./modules/profile/ProfilePage";
-import { OperationsPage } from "./modules/dashboard/OperationsPage";
+import { TechnicalSettingsPage } from "./modules/settings/TechnicalSettingsPage";
 import { SettingsPage } from "./modules/settings/SettingsPage";
 import { TenantUsersPage } from "./modules/settings/TenantUsersPage";
 import type { ModuleId } from "./types/modules";
@@ -21,7 +21,8 @@ import type { ModuleId } from "./types/modules";
 function routeFromPath(): AppRoute {
   const path = window.location.pathname.replace(/^\/t\/[^/]+/, "") || "/";
 
-  if (path === "/operations") return "operations";
+  if (path === "/operations") return "dashboard";
+  if(path.startsWith("/admin/integrations"))return "technical-settings";
   if (path.startsWith("/parking")) {
     return "parking";
   }
@@ -44,7 +45,7 @@ function routeFromPath(): AppRoute {
 
   if (path.startsWith("/settings")) {
     if (path.startsWith("/settings/users")) {
-      return "users";
+      return "settings";
     }
 
     return "settings";
@@ -72,6 +73,7 @@ function tenantSlugFromPath() {
 }
 
 function pathFromRoute(route: AppRoute, tenantSlug?: string) {
+  if (route === "technical-settings") return `/t/${encodeURIComponent(tenantSlug||"")}/admin/integrations`;
   if (route === "devices") return "/admin/devices";
 
   if (route === "admin") {
@@ -133,7 +135,7 @@ function PrivateApp() {
     (membership) => membership.tenantId === activeTenantId,
   )?.role || (session?.isPlatformAdmin && activeTenantId ? "platform_admin" : undefined);
   const canConfigureTenant =
-    activeTenantRole === "platform_admin" || activeTenantRole === "tenant_admin";
+    ["platform_admin","tenant_admin","manager"].includes(activeTenantRole||"");
 
   function navigate(nextRoute: AppRoute) {
     window.history.pushState(
@@ -177,10 +179,11 @@ function PrivateApp() {
             : route
         );
 
-  const page =
-    visibleRoute === "operations" ? <OperationsPage enabledModules={enabledModules} /> :
+  const forbidden=(route==="checkout"&&!enabledModules.checkout)||(route==="parking"&&!enabledModules.parking)||(["admin","devices","technical-settings"].includes(route)&&!session.isPlatformAdmin)||(["settings","integrations","users","hookbox","hotel-devices"].includes(route)&&!canConfigureTenant);
+  const page = forbidden?<section className="panel access-state"><h1>Access restricted</h1><p>This section is not available for your hotel role.</p></section>:
+    visibleRoute === "technical-settings" && session.isPlatformAdmin ? <TechnicalSettingsPage/> :
     visibleRoute === "hotel-devices" && canConfigureTenant ? (<HookboxDevicesPage key={activeTenantId} />) :
-    visibleRoute === "hookbox" && canConfigureTenant ? (<HookboxDesignPage key={activeTenantId+window.location.pathname} deviceId={window.location.pathname.match(/\/devices\/([a-f0-9-]+)\/screen/)?.[1]||new URLSearchParams(window.location.search).get("deviceId")||undefined} />) :
+    visibleRoute === "hookbox" && canConfigureTenant ? (<HookboxDesignPage key={activeTenantId+window.location.pathname} showTechnical={session.isPlatformAdmin} deviceId={window.location.pathname.match(/\/devices\/([a-f0-9-]+)\/screen/)?.[1]||new URLSearchParams(window.location.search).get("deviceId")||undefined} />) :
     visibleRoute === "parking" ? (
       <ParkingPage />
     ) : visibleRoute === "profile" ? (

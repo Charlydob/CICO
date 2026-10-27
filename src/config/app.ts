@@ -1,1 +1,1 @@
-export const APP_NAME = "Hotel Automation";
+export const APP_NAME = "CICO";

@@ -220,6 +220,7 @@ model Room {
 
   @@index([tenantId, status])
   @@index([tenantId, number])
+  @@unique([tenantId, id], map:"rooms_tenant_id_id_key")
   @@map("rooms")
 }
 
@@ -233,7 +234,7 @@ model KeyIdentifier {
   active     Boolean  @default(true)
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
-  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room       Room     @relation(fields: [tenantId, roomId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction, map: "keys_room_hotel_fk")
   tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, roomId])
@@ -254,7 +255,7 @@ model CheckoutEvent {
   telegramMessageDeletedAt DateTime?       @map("telegram_message_deleted_at")
   timestamp                DateTime        @default(now())
   tenant                   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  room                     Room            @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room                     Room            @relation(fields: [tenantId, roomId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction, map: "checkout_room_hotel_fk")
   occupancyCycle           OccupancyCycle? @relation(fields: [occupancyCycleId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, timestamp])
@@ -276,7 +277,7 @@ model OccupancyCycle {
   departureAt     DateTime?      @map("departure_at")
   metadata        Json           @default("{}")
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  room            Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  room            Room           @relation(fields: [tenantId, roomId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction, map: "cycle_room_hotel_fk")
   checkoutEvent   CheckoutEvent?
 
   @@unique([tenantId, roomId, cycleNumber])
@@ -290,6 +291,7 @@ model Invitation {
   tenantId  String    @map("tenant_id") @db.Uuid
   role      String
   tokenHash String    @unique @map("token_hash")
+  encryptedToken String? @map("encrypted_token")
   invitedBy String?   @map("invited_by") @db.Uuid
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")

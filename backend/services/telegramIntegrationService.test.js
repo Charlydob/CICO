@@ -213,7 +213,7 @@ test("staff pairing is one-use and linked staff can complete the housekeeping ta
   await assert.rejects(() => handleHousekeepingAction(database, { ...actor, action: "assign", assignmentTarget: "staff@example.test" }), /Manager access/);
 });
 
-test("complete finishes all housekeeping tasks without prior progress and makes the room ready", async () => {
+test("legacy completion respects independent task checks", async () => {
   const database = createFakeDatabase({
     tenants: { "hotel-a": { id: "hotel-a", name: "Hotel A", slug: "hotel-a", active: true } },
     tenantSettings: { "hotel-a": { tenantId: "hotel-a", notifications: { telegram: { enabled: true, chatId: "-1001" } } } },
@@ -223,6 +223,8 @@ test("complete finishes all housekeeping tasks without prior progress and makes 
   const room = await createRoom(database, "hotel-a", { number: "205", status: "occupied" });
   const checkout = await registerCheckout(database, "hotel-a", room.id, "manual");
 
+  await assert.rejects(handleHousekeepingAction(database,{tenantId:"hotel-a",chatId:"-1001",telegramUserId:"1",eventId:checkout.event.id,action:"complete"}),{statusCode:409});
+  for(const action of ["bed_done","cleaning_done"])await handleHousekeepingAction(database,{tenantId:"hotel-a",chatId:"-1001",telegramUserId:"1",eventId:checkout.event.id,action});
   await handleHousekeepingAction(database, {
     tenantId: "hotel-a", chatId: "-1001", telegramUserId: "1", eventId: checkout.event.id, action: "complete",
   });
@@ -231,8 +233,8 @@ test("complete finishes all housekeeping tasks without prior progress and makes 
   assert.equal(housekeeping.bedDoneByUserId, "staff");
   assert.equal(housekeeping.cleaningDoneByUserId, "staff");
   assert.equal(housekeeping.completedByUserId, "staff");
-  assert.equal(housekeeping.bedDoneAt, housekeeping.completedAt);
-  assert.equal(housekeeping.cleaningDoneAt, housekeeping.completedAt);
+  assert.ok(housekeeping.bedDoneAt);
+  assert.ok(housekeeping.cleaningDoneAt);
   assert.equal(database.data.rooms[room.id].status, "ready");
 });
 

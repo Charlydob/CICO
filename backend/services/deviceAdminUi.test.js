@@ -15,7 +15,7 @@ test("device administration keeps RFID forms and histories collapsed until reque
   assert.match(checkout,/Historial cronológico de lecturas/);
   assert.match(checkout,/if\(saved\)\{setKeyFormOpen\(false\)/);
   assert.match(checkout,/\|\|\/\\d\/\.test\(room\)\?`Habitación/);
-  assert.match(detail,/Ver historial de comandos/);
+  assert.match(detail,/Command history/);
   assert.match(detail,/device\.hardwareModel==="ESP32_DEVKIT_CHECKOUT_V1"\?<CheckoutBoxDevicePanel/);
   assert.doesNotMatch(detail,/ota-modal/);
 });

@@ -44,7 +44,7 @@ export function ProfilePage() {
       ),
   );
   const pushActive = subscriptionActive && Boolean(pushStatus?.preference?.enabled);
-  const canViewPushDiagnostics = role === "platform_admin" || role === "tenant_admin";
+  const canViewPushDiagnostics = Boolean(session?.isPlatformAdmin);
 
   const displayName = useMemo(
     () => alias || user?.username || user?.displayName || user?.email || "",
@@ -116,7 +116,7 @@ export function ProfilePage() {
 
   async function testNotifications() {
     if (!currentEndpoint) {
-      setPushTestResult("Este dispositivo no tiene una suscripción Web Push activa.");
+      setPushTestResult("This device has no active push subscription.");
       return;
     }
     setBusy("push-test");
@@ -124,8 +124,8 @@ export function ProfilePage() {
     try {
       const result = await sendPushTest(currentEndpoint);
       setPushTestResult(
-        `Proveedor aceptó el envío${result.httpStatus ? ` (HTTP ${result.httpStatus})` : ""}. ` +
-          "Esto no confirma que la notificación se haya mostrado en el iPhone.",
+        `Provider accepted delivery${result.httpStatus ? ` (HTTP ${result.httpStatus})` : ""}. ` +
+          "This does not confirm that the notification appeared on the device.",
       );
       await refreshPush();
     } catch (error) {
@@ -133,10 +133,10 @@ export function ProfilePage() {
         const status = Number(error.payload?.httpStatus || error.status) || undefined;
         const reason = String(error.payload?.providerReason || error.payload?.error || error.message);
         setPushTestResult(
-          `Proveedor rechazó el envío${status ? ` (HTTP ${status})` : ""}: ${reason}`,
+          `Provider rejected delivery${status ? ` (HTTP ${status})` : ""}: ${reason}`,
         );
       } else {
-        setPushTestResult(error instanceof Error ? error.message : "No se pudo probar Web Push.");
+        setPushTestResult(error instanceof Error ? error.message : "Could not send the test notification.");
       }
       await refreshPush().catch(() => undefined);
     } finally {
@@ -166,7 +166,7 @@ export function ProfilePage() {
           </label>
           <div className="profile-meta-grid">
             <span>{t("email")}</span><strong>{user?.email}</strong>
-            <span>{t("role")}</span><strong>{role || "-"}</strong>
+            <span>{t("role")}</span><strong>{({tenant_admin:"Hotel owner",manager:"Manager",staff:"Staff",platform_admin:"Superadmin"} as Record<string,string>)[role||""]||"-"}</strong>
             <span>{t("hotelAlias")}</span><strong>{alias || "-"}</strong>
           </div>
           <button type="button" onClick={() => void saveProfile()} disabled={busy !== ""}>
@@ -175,7 +175,7 @@ export function ProfilePage() {
         </div>
       </section>
 
-      <section className="panel">
+      <details className="panel profile-settings" open><summary>Settings</summary>
         <div className="section-heading">
           <h2>{t("language")}</h2>
         </div>
@@ -184,7 +184,7 @@ export function ProfilePage() {
             {LOCALES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
         </div>
-      </section>
+      </details>
 
       <section className="panel">
         <div className="section-heading">
@@ -204,7 +204,7 @@ export function ProfilePage() {
               </button>
               {subscriptionActive && activeTenantId && (
                 <button type="button" onClick={() => void testNotifications()} disabled={busy !== ""}>
-                  <Send size={16} /> Probar notificación
+                  <Send size={16} /> Send test notification
                 </button>
               )}
               {pushTestResult && <p>{pushTestResult}</p>}
@@ -212,7 +212,7 @@ export function ProfilePage() {
           )}
           {canViewPushDiagnostics && pushDiagnostic && (
             <details className="collapsible-panel">
-              <summary>Último diagnóstico de checkout</summary>
+              <summary>Last checkout diagnostic</summary>
               <div className="profile-meta-grid">
                 <span>Intento</span><strong>{new Date(pushDiagnostic.attemptedAt).toLocaleString()}</strong>
                 <span>Hotel / habitación</span><strong>{pushDiagnostic.hotelName} · {pushDiagnostic.roomNumber}</strong>
@@ -239,7 +239,7 @@ export function ProfilePage() {
         </div>
       </section>
 
-      {user?.telegramUserId && (
+      {session?.isPlatformAdmin && user?.telegramUserId && (
         <details className="panel collapsible-panel">
           <summary>{t("legacyIntegrations")}</summary>
           <div className="settings-form">

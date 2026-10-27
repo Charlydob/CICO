@@ -79,6 +79,7 @@ export function createEventProcessor({
   }
 
   async function updatePlateStateFromDetection(detection) {
+    if(detection.tenantId&&detection.tenantId!==tenantId)return;
     const plate = normalizePlate(detection.plate);
     if (!plate) {
       return;
@@ -96,6 +97,7 @@ export function createEventProcessor({
   }
 
   async function updatePlateStateFromAssociation(detection) {
+    if(detection.tenantId&&detection.tenantId!==tenantId)return;
     const plate = normalizePlate(detection.plate);
     if (!plate) {
       return;
@@ -239,7 +241,7 @@ export function createEventProcessor({
       }
 
       const plate = normalizePlate(detection.plate);
-      const plateState = plate ? await database.getPlateState(plate) : undefined;
+      const plateState = plate && (!detection.tenantId||detection.tenantId===tenantId) ? await database.getPlateState(plate) : undefined;
       if (
         plateState?.activeReservationCode &&
         plateState.activeReservationCode !== detection.reservationCode
@@ -250,7 +252,8 @@ export function createEventProcessor({
         continue;
       }
 
-      const updated = applyTemporalAssociation(detection, checkIns, options);
+      const scoped=checkIns.filter(c=>(c.tenantId||tenantId)===(detection.tenantId||tenantId));
+      const updated = applyTemporalAssociation(detection, scoped, options);
 
       if (
         updated.associationStatus === detection.associationStatus &&
@@ -289,13 +292,14 @@ export function createEventProcessor({
       return directPayload;
     }
 
-    const checkIns = await database.getCheckIns();
-    return applyTemporalAssociation(directPayload, checkIns, getMatchingOptions());
+    const ownTenant=input.tenantId||tenantId;
+    const checkIns=(await database.getCheckIns()).filter(c=>(c.tenantId||tenantId)===ownTenant);
+    return applyTemporalAssociation({...directPayload,tenantId:ownTenant}, checkIns, getMatchingOptions());
   }
 
   async function processFrigateDetection(input) {
     const detectionTenantId = input.tenantId || tenantId;
-    const reservations = await getReservations();
+    const reservations = detectionTenantId===tenantId?await getReservations():[];
     const detectionPayload = await buildDetectionWithTemporalMatching(input, reservations);
     const createdDetection = await database.createDetection({
       ...detectionPayload,
@@ -318,6 +322,7 @@ export function createEventProcessor({
   }
 
   async function processDetectionWithCooldown(input) {
+    if(input.tenantId&&input.tenantId!==tenantId)return processFrigateDetection(input);
     const plate = normalizePlate(input.plate);
     const detectedAt = input.detectedAt || new Date().toISOString();
 
@@ -361,9 +366,9 @@ export function createEventProcessor({
       throw new Error("Cannot create a check-in without reservationNumber.");
     }
 
-    const reservations = await getReservations();
-    const reservation = findReservationByCode(reservations, reservationCode);
     const checkInTenantId = input.tenantId || tenantId;
+    const reservations=checkInTenantId===tenantId?await getReservations():[];
+    const reservation = findReservationByCode(reservations, reservationCode);
     const matchedRoom = await findRoomByNumber(checkInTenantId, reservation?.room || input.room);
     const checkIn = await database.createCheckIn({
       tenantId: checkInTenantId,

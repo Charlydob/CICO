@@ -186,7 +186,13 @@ export async function listCheckoutOverview(database, tenantId) {
   };
 }
 
-export async function setTodayCheckoutRooms(database, tenantId, roomIds, date) {
+export async function setTodayCheckoutRooms(database, tenantId, roomIds, date, actorId = null, locked = false) {
+  if(database.withRoomLocks&&!locked){
+    const roomLocks=(await database.listTenantRecords("rooms",tenantId)).map(r=>r.id);
+    const result=await database.withRoomLocks(tenantId,roomLocks,tx=>setTodayCheckoutRooms(tx,tenantId,roomIds,date,actorId,true));
+    notifyExpectedDeparturesChanged(database,tenantId);
+    return result;
+  }
   const selected = new Set(Array.isArray(roomIds) ? roomIds.map(String) : []);
   const rooms = (await database.listTenantRecords("rooms", tenantId)).filter(isRoomAvailable);
   const invalid = [...selected].filter((id) => !rooms.some((room) => room.id === id));
@@ -195,10 +201,15 @@ export async function setTodayCheckoutRooms(database, tenantId, roomIds, date) {
     error.statusCode = 400;
     throw error;
   }
+  if(rooms.some(r=>selected.has(r.id)&&["checkout_received","ready_for_cleaning","cleaning"].includes(r.status)))
+    throw checkoutError("A checked-out room cannot be added to expected departures. Correct the checkout first.",409,"CHECKOUT_ALREADY_RECEIVED");
 
+  const changes=[];
   await Promise.all(rooms.map((room) => {
     const currentlyToday = String(room.checkoutDueDate || "").slice(0, 10) === date;
     if (!selected.has(room.id) && !currentlyToday) return undefined;
+    if(selected.has(room.id)&&currentlyToday)return undefined;
+    changes.push({roomId:room.id,previous:room.checkoutDueDate||null,next:selected.has(room.id)?date:null});
     return database.setRecord("rooms", room.id, {
       ...room,
       checkoutDueDate: selected.has(room.id) ? date : null,
@@ -206,7 +217,18 @@ export async function setTodayCheckoutRooms(database, tenantId, roomIds, date) {
       updatedAt: now(),
     });
   }));
+  if(changes.length)await database.setRecord("diagnostics",`checkout-plan-audit:${tenantId}:${randomUUID()}`,{tenantId,actorId,action:"expected_departures_changed",at:now(),changes});
 
+  if(!locked)notifyExpectedDeparturesChanged(database,tenantId);
+
+  return {
+    date,
+    source: "manual",
+    roomIds: rooms.filter((room) => selected.has(room.id)).map((room) => room.id),
+  };
+}
+
+function notifyExpectedDeparturesChanged(database,tenantId){
   void Promise.all([
     database.getRecord("tenants", tenantId),
     getTenantSettings(database, tenantId),
@@ -219,11 +241,6 @@ export async function setTodayCheckoutRooms(database, tenantId, roomIds, date) {
       console.warn(`[Notifications] housekeeping board refresh setup failed: ${message}`);
     });
 
-  return {
-    date,
-    source: "manual",
-    roomIds: rooms.filter((room) => selected.has(room.id)).map((room) => room.id),
-  };
 }
 
 function publicCycle(cycle) {
@@ -445,6 +462,19 @@ export async function updateRoom(database, tenantId, roomId, patch) {
   return room;
 }
 
+// Administrative edits must not bypass checkout or independently confirmed cleaning tasks.
+export async function updateManagedRoom(database,tenantId,roomId,patch,actorId,locked=false){
+  if(database.withRoomLock&&!locked)return database.withRoomLock(tenantId,roomId,tx=>updateManagedRoom(tx,tenantId,roomId,patch,actorId,true));
+  const current=await database.getTenantRecord("rooms",tenantId,roomId);
+  if(!current||current.deletedAt)throw checkoutError("Room not found.",404,"ROOM_NOT_FOUND");
+  const statusChanged=patch.status!==undefined&&patch.status!==current.status;
+  if(statusChanged&&!["occupied","unknown"].includes(patch.status))throw checkoutError("Use the checkout and cleaning board to change this state.",409,"USE_CHECKOUT_WORKFLOW");
+  if((statusChanged||patch.active===false)&&["checkout_received","ready_for_cleaning","cleaning"].includes(current.status))throw checkoutError("Complete or correct the pending checkout before changing room availability.",409,"PENDING_CHECKOUT_WORKFLOW");
+  const result=await updateRoom(database,tenantId,roomId,patch);
+  if(statusChanged||patch.active===false)await database.setRecord("diagnostics",`room-state-audit:${tenantId}:${randomUUID()}`,{tenantId,roomId,actorId,action:"room_availability_changed",at:now(),previous:current.status,next:result.status,active:result.active});
+  return result;
+}
+
 export async function listKeyIdentifiers(database, tenantId) {
   return database.listTenantRecords("keyIdentifiers", tenantId);
 }
@@ -599,7 +629,8 @@ export async function deleteKeyIdentifier(database, tenantId, keyId) {
   return { success: true, deletedId: keyId };
 }
 
-export async function archiveRoom(database, tenantId, roomId) {
+export async function archiveRoom(database, tenantId, roomId,actorId=null,locked=false) {
+  if(database.withRoomLock&&!locked)return database.withRoomLock(tenantId,roomId,tx=>archiveRoom(tx,tenantId,roomId,actorId,true));
   const current = await database.getTenantRecord("rooms", tenantId, roomId);
 
   if (!current || current.deletedAt) {
@@ -607,6 +638,8 @@ export async function archiveRoom(database, tenantId, roomId) {
     error.statusCode = 404;
     throw error;
   }
+
+  if(["checkout_received","ready_for_cleaning","cleaning"].includes(current.status))throw checkoutError("Complete or correct the pending checkout before archiving this room.",409,"PENDING_CHECKOUT_WORKFLOW");
 
   const timestamp = now();
   const archivedRoom = {
@@ -621,6 +654,7 @@ export async function archiveRoom(database, tenantId, roomId) {
   );
 
   await database.setRecord("rooms", roomId, archivedRoom);
+  await database.setRecord("diagnostics",`room-state-audit:${tenantId}:${randomUUID()}`,{tenantId,roomId,actorId,action:"room_archived",at:timestamp});
   await Promise.all(
     keys.map((key) =>
       database.setRecord("keyIdentifiers", key.id, {
@@ -737,7 +771,7 @@ export async function registerCheckout(database, tenantId, roomId, source, optio
       sourceIdentifier,
       timestamp,
       status: "registered",
-      metadata: options.metadata || {},
+      metadata: {...(options.metadata||{}),priorRoom:{status:room.status,lastCheckoutAt:room.lastCheckoutAt||null,lastCheckoutSource:room.lastCheckoutSource||null,checkoutDueDate:room.checkoutDueDate||null,checkoutDueSource:room.checkoutDueSource||null,lastCleanedAt:room.lastCleanedAt||null}},
     };
     const updatedRoom = {
       ...room,

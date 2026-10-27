@@ -72,7 +72,7 @@ test("POST /api/push/test exposes Apple BadJwtToken provider reason", async () =
         session: {
           user: { id: "user-a" },
           activeTenantId: "hotel-a",
-          memberships: [],
+          memberships: [{tenantId:"hotel-a",userId:"user-a",role:"staff"}],
           isPlatformAdmin: false,
         },
       },
@@ -115,7 +115,7 @@ test("GET /api/push/test-schedule/:id returns the scheduled test status", async 
       session: {
         user: { id: "user-a" },
         activeTenantId: "hotel-a",
-        memberships: [],
+        memberships: [{tenantId:"hotel-a",userId:"user-a",role:"staff"}],
         isPlatformAdmin: false,
       },
     },
@@ -149,7 +149,7 @@ test("GET /api/push/diagnostics is tenant-scoped and admin-only", async () => {
   const adminSession = {
     user: { id: "admin", globalRole: "platform_admin" },
     activeTenantId: "hotel-a",
-    memberships: [],
+    memberships: [{tenantId:"hotel-a",userId:"user-a",role:"staff"}],
     isPlatformAdmin: true,
   };
   const result = await handlePushRoute({

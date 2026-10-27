@@ -19,11 +19,14 @@ import {
   setTodayCheckoutRooms,
   updateKeyIdentifier,
   updateRoom,
+  updateManagedRoom,
 } from "./checkoutService.js";
 import { requireModule } from "./tenantService.js";
 
 function createFakeDatabase(initial = {}) {
   const data = {
+    users: {},
+    memberships: {},
     tenants: {},
     tenantModules: {},
     rooms: {},
@@ -316,10 +319,10 @@ test("module entitlement is enforced per tenant", async () => {
   });
 
   await assert.doesNotReject(() =>
-    requireModule(database, { activeTenantId: "hotelA" }, "checkout"),
+    requireModule(database, { activeTenantId: "hotelA",memberships:[{tenantId:"hotelA",role:"tenant_admin"}] }, "checkout"),
   );
   await assert.rejects(
-    () => requireModule(database, { activeTenantId: "hotelB" }, "checkout"),
+    () => requireModule(database, { activeTenantId: "hotelB",memberships:[{tenantId:"hotelB",role:"tenant_admin"}] }, "checkout"),
     /not enabled/,
   );
 });
@@ -1127,6 +1130,10 @@ test("deleted room is archived, keeps history, deactivates keys, and can be recr
     attemptToken: target.attemptToken,
   });
 
+  await assert.rejects(archiveRoom(database,"hotelA",room.id),{statusCode:409});
+  const {applyHousekeepingAction}=await import("./housekeepingService.js");
+  const event=Object.values(database.data.checkoutEvents)[0];
+  for(const action of ["bed_done","cleaning_done","complete"])await applyHousekeepingAction(database,{tenantId:"hotelA",eventId:event.id,actor:{user:{id:"manager"},role:"manager"},action});
   const deletion = await archiveRoom(database, "hotelA", room.id);
 
   assert.equal(deletion.success, true);
@@ -1147,4 +1154,29 @@ test("deleted room is archived, keeps history, deactivates keys, and can be recr
       return true;
     },
   );
+});
+
+
+test('expected departures are audited and room edits cannot skip checkout or cleaning',async()=>{
+ const db=createFakeDatabase(),room=await createRoom(db,'hotelA',{number:'111',status:'occupied'});
+ await setTodayCheckoutRooms(db,'hotelA',[room.id],'2026-10-27','manager');
+ const audit=Object.values(db.data.diagnostics).find(r=>r.action==='expected_departures_changed');assert.equal(audit.actorId,'manager');assert.equal(audit.changes[0].roomId,room.id);
+ await assert.rejects(updateManagedRoom(db,'hotelA',room.id,{status:'ready'},'manager'),{statusCode:409});
+ await registerCheckout(db,'hotelA',room.id,'manual');
+ await assert.rejects(updateManagedRoom(db,'hotelA',room.id,{status:'occupied'},'manager'),{statusCode:409});
+ await assert.rejects(updateManagedRoom(db,'hotelA',room.id,{active:false},'manager'),{statusCode:409});
+ await assert.rejects(setTodayCheckoutRooms(db,'hotelA',[room.id],'2026-10-27','manager'),{statusCode:409});
+});
+
+test('parking temporal association never uses a guest from another hotel or its global plate state',async()=>{
+ const at=new Date().toISOString(),db=createFakeDatabase({checkIns:{foreign:{id:'foreign',tenantId:'hotelA',reservationCode:'PRIVATE-A',fullName:'Private Guest',checkInAt:at,room:'101',parkingValid:true}},detections:{foreignDetection:{id:'foreignDetection',tenantId:'hotelA',plate:'FOREIGN',detectedAt:at,associationStatus:'unmatched'}}});
+ let plateAccess=0;db.getPlateState=async()=>{plateAccess++;return {activeReservationCode:'PRIVATE-A'}};
+ db.createDetection=async input=>{const row={...input,id:randomUUID()};db.data.detections[row.id]=row;return row;};
+ const processor=createEventProcessor({database:db,tenantId:'hotelA',fileStorage:{},frigateClient:{},processedEvents:{},plateCooldown:{}});
+ const detection=await processor.processFrigateDetection({tenantId:'hotelB',plate:'SAME123',detectedAt:at});
+ assert.equal(detection.associationStatus,'unmatched');assert.equal(detection.guestName,undefined);assert.equal(plateAccess,0);
+ await processor.processCheckInEvent({tenantId:'hotelB',reservationCode:'OWN-B',fullName:'B Guest',checkInAt:at});
+ assert.notEqual(db.data.detections.foreignDetection.guestName,'B Guest');assert.notEqual(db.data.detections.foreignDetection.reservationCode,'OWN-B');
+ assert.equal(db.data.detections[detection.id].guestName,'B Guest');
+ assert.equal(db.data.detections[detection.id].reservationCode,'OWN-B');
 });

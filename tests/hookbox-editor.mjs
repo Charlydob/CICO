@@ -56,52 +56,52 @@ await page.goto(
   (process.env.HOOKBOX_TEST_ORIGIN || "http://127.0.0.1:4321") +
     "/tests/hookbox-editor.html",
 );
-await page.getByLabel("Nombre del hotel").waitFor({ state: "attached" });
+await page.getByLabel("Hotel name").waitFor({ state: "attached" });
 await page.evaluate(() => document.fonts.ready);
-await page.getByRole("button", { name: "Editar", exact: true }).click();
-await page.getByLabel("Nombre del hotel").fill("Hotel Prueba");
+await page.getByRole("button", { name: "Edit", exact: true }).click();
+await page.getByLabel("Hotel name").fill("Hotel Prueba");
 await page.locator("canvas").scrollIntoViewIfNeeded();
 const editBounds = await page.locator("canvas").boundingBox();
 await page.mouse.click(
   editBounds.x + (120 * editBounds.width) / 800,
   editBounds.y + (120 * editBounds.height) / 480,
 );
-await page.getByLabel("Texto seleccionado", { exact: true }).fill("Guten Tag");
-await page.getByLabel("Color del elemento", { exact: true }).fill("#c5a575");
+await page.getByLabel("Selected text", { exact: true }).fill("Guten Tag");
+await page.getByLabel("Element color", { exact: true }).fill("#c5a575");
 assert.equal(await page.locator(".hb-selected").count(), 1);
 
 await page
-  .getByRole("button", { name: "Guardar borrador", exact: true })
+  .getByRole("button", { name: "Save draft", exact: true })
   .click();
-await page.getByText("Borrador guardado", { exact: true }).waitFor();
+await page.getByText("Draft saved", { exact: true }).waitFor();
 assert.equal(draft.hotelName, "Hotel Prueba");
 assert.equal(draft.texts.de.welcome, "Guten Tag");
 assert.equal(draft.colors.primary, "#c5a575");
-await page.getByRole('button',{name:'Búsqueda',exact:true}).click();await page.waitForTimeout(150);
+await page.getByRole('button',{name:'Search',exact:true}).click();await page.waitForTimeout(150);
 const frozenWaiting=await page.locator('canvas').evaluate(c=>c.toDataURL());
 await page.waitForTimeout(1000);
 assert.ok(await page.locator('canvas').evaluate(c=>c.toDataURL())===frozenWaiting,'Edit mode freezes automatic preview transitions');
 assert.equal(await page.locator('.hb-selected').count(),0);
-await page.getByRole('button',{name:'Inicio',exact:true}).click();
+await page.getByRole('button',{name:'Home',exact:true}).click();
 
-await page.getByRole("button", { name: "Vista previa", exact: true }).click();
+await page.getByRole("button", { name: "Preview", exact: true }).click();
 const canvas = page.locator("canvas");
 const pixels = () => canvas.evaluate((c) => c.toDataURL());
-assert.equal(await page.getByLabel("Plantilla").inputValue(), "guest-portal");
-for (const screen of ["Búsqueda", "Habitación", "Error", "Entrega", "Final"]) {
+assert.equal(await page.getByLabel("Template").inputValue(), "guest-portal");
+for (const screen of ["Search", "Room", "Error", "Delivery", "Done"]) {
   await page.getByRole("button", { name: screen, exact: true }).click();
   await page.waitForTimeout(30);
   assert.ok((await pixels()).length > 1000);
 }
 await page
-  .getByLabel("Configuración de pantalla", { exact: true })
+  .getByLabel("Display configuration", { exact: true })
   .selectOption("panel");
-await page.getByLabel("Nombre del hotel").waitFor({ state: "attached" });
+await page.getByLabel("Hotel name").waitFor({ state: "attached" });
 await page
-  .getByLabel("Configuración de pantalla", { exact: true })
+  .getByLabel("Display configuration", { exact: true })
   .selectOption("");
 await page
-  .getByRole("button", { name: "Identificación y teclado", exact: true })
+  .getByRole("button", { name: "Identification & keyboard", exact: true })
   .click();
 async function tap(x, y) {
   const r = await canvas.boundingBox();
@@ -110,32 +110,32 @@ async function tap(x, y) {
 await tap(40, 280);
 await tap(120, 280);
 await tap(550, 220);
-await page.getByRole("button", { name: "Verificación", exact: true }).waitFor();
-await page.getByRole("button", { name: "Inicio", exact: true }).click();
+await page.getByRole("button", { name: "Verification", exact: true }).waitFor();
+await page.getByRole("button", { name: "Home", exact: true }).click();
 await tap(694, 44); // fr
 assert.equal(
-  await page.getByLabel("Idioma de vista previa").inputValue(),
+  await page.getByLabel("Preview language").inputValue(),
   "fr",
 );
 await page
-  .getByRole("button", { name: "Publicar diseño", exact: true })
+  .getByRole("button", { name: "Publish design", exact: true })
   .click();
 await page
-  .getByText("Diseño publicado; esperando confirmación de los dispositivos")
+  .getByText("Design published; waiting for device confirmation")
   .waitFor();
 assert.equal(published, 1);
-await page.getByRole("button", { name: "Editar", exact: true }).click();
-await page.getByLabel("Nombre del hotel").fill("Guest House Steinbock");
+await page.getByRole("button", { name: "Edit", exact: true }).click();
+await page.getByLabel("Hotel name").fill("Guest House Steinbock");
 await page
-  .getByRole("button", { name: "Aplicar identidad Steinbock", exact: true })
+  .getByRole("button", { name: "Apply Steinbock branding", exact: true })
   .click();
 await page
   .getByText(
-    "Identidad Steinbock cargada como borrador; revisa y publica para aplicarla",
+    "Steinbock branding loaded as a draft; review and publish to apply",
     { exact: true },
   )
   .waitFor();
-await page.getByRole("button", { name: "Vista previa", exact: true }).click();
+await page.getByRole("button", { name: "Preview", exact: true }).click();
 await canvas.scrollIntoViewIfNeeded();
 const bounds = await canvas.boundingBox();
 await page.mouse.move(
@@ -147,7 +147,7 @@ await page.waitForTimeout(5100);
 await page.mouse.up();
 await page.waitForTimeout(100);
 const servicePixels = await pixels();
-await page.getByRole("button", { name: "Inicio", exact: true }).click();
+await page.getByRole("button", { name: "Home", exact: true }).click();
 await page.waitForTimeout(100);
 assert.notEqual(
   await pixels(),
@@ -156,12 +156,12 @@ assert.notEqual(
 );
 await page
   .getByRole("button", {
-    name: "Restaurar plantilla predeterminada",
+    name: "Restore default template",
     exact: true,
   })
   .click();
 assert.equal(
-  await page.getByLabel("Nombre del hotel").inputValue(),
+  await page.getByLabel("Hotel name").inputValue(),
   "Guest House Steinbock",
 );
 await page.waitForTimeout(200);
@@ -174,7 +174,7 @@ assert.deepEqual(errors, []);
 console.log(
   "EDITOR_BROWSER_PASS: editing, save, publication, touch form, keyboard, language, canvas render",
 );
-await page.getByRole("button", { name: "Editar", exact: true }).click();
+await page.getByRole("button", { name: "Edit", exact: true }).click();
 await canvas.scrollIntoViewIfNeeded();
 const selectedBounds = await canvas.boundingBox();
 await page.mouse.click(
