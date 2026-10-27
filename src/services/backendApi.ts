@@ -1476,6 +1476,11 @@ export async function downloadFirmwareRelease(id: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+export function adminHookboxIntegrationRequest<T>(deviceId: string, path = "", body?: unknown): Promise<T> {
+  const target = "/api/admin/devices/" + encodeURIComponent(deviceId) + "/integration" + path;
+  return requestJson<T>(target, body === undefined ? undefined : { method: "POST", body: JSON.stringify(body) });
+}
+
 export function hookboxRequest<T>(path: string, body?: unknown): Promise<T> {
   return requestJson<T>('/api/hookbox/'+path, body === undefined ? undefined : {method:'POST',body:JSON.stringify(body)});
 }
