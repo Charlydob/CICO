@@ -1,3 +1,4 @@
+import { getDeviceIntegration, saveDeviceIntegration, rotateDeviceWebhookSecret } from "./integration.js";
 import {
   requireTenant,
   requireTenantAdmin,
@@ -119,7 +120,7 @@ export async function handleHookboxRoute({
       throw error;
     }
   } else {
-    const { session } = await getContext(request);
+    const { session, database } = await getContext(request);
     const tenant = requireTenant(session);
     requireTenantAdmin(session, tenant);
     if (
@@ -130,7 +131,17 @@ export async function handleHookboxRoute({
       fail("Request origin not allowed", 403);
     const path = pathname.slice(adminPath.length);
     if(!session.isPlatformAdmin&&["diagnostics","inherit"].includes(path))fail("Technical configuration requires superadmin",403);
-    if (request.method === "GET" && path === "devices")
+    const integrationMatch = path.match(/^devices\/([a-f0-9-]{36})\/integration$/);
+    const rotateMatch = path.match(/^devices\/([a-f0-9-]{36})\/integration\/rotate-secret$/);
+    if ((integrationMatch || rotateMatch) && !database)
+      fail("Database unavailable", 503);
+    if (request.method === "GET" && integrationMatch)
+      payload = await getDeviceIntegration(database, tenant, integrationMatch[1]);
+    else if (request.method === "POST" && integrationMatch)
+      payload = await saveDeviceIntegration(database, tenant, integrationMatch[1], await readHookboxJson(request));
+    else if (request.method === "POST" && rotateMatch)
+      payload = await rotateDeviceWebhookSecret(database, tenant, rotateMatch[1]);
+    else if (request.method === "GET" && path === "devices")
       payload = await service.devices(tenant);
     else if (request.method === "GET" && /^devices\/[a-f0-9-]{36}$/.test(path))
       payload = await service.device(tenant, path.split("/")[1]);
