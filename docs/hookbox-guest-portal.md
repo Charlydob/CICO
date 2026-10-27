@@ -14,7 +14,7 @@ Editable properties include hotel identity, logo, decoration, all four translati
 
 Local verification covers 160 backend tests with PostgreSQL and the native check-in simulator, editor interactions and the tenant-admin device-detail-editor path in Playwright. The firmware has 69 passing native cases, OTA scanner regression checks and a successful real CrowPanel build. Physical OTA and design acceptance must be evidenced by device status and ACK; browser previews do not establish physical appearance, touch behavior, QR scanning or electrical delivery.
 
-## UX delivery scope (2026-10-26)
+## UX delivery scope (2026-10-27)
 
 Implemented: distinct Operations navigation, hotel header without Support Mode, global Devices/Firmware inside Admin; Preview/Edit modes, selection highlight and contextual editing of supported text and shared colors; compact categories, one translation field selector, mobile contextual sheet. All editable values use the existing persisted theme and immutable publication protocol. CICO language infrastructure is unchanged. Hardware firmware remains 2.7.0 and 800x480.
 

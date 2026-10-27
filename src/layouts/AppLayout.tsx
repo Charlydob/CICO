@@ -247,7 +247,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
               <button
                 key={`${item.route}-${item.label}`}
                 type="button"
-                className={route === item.route ? "active" : ""}
+                className={(route === item.route || (item.route === "admin" && route === "devices")) ? "active" : ""}
                 onClick={() => onRouteChange(item.route)}
               >
                 <Icon size={18} />
