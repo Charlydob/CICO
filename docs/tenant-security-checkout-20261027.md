@@ -19,6 +19,8 @@ Direct contracted-module navigation replaces Operations. Hotel Settings contains
 
 The checkout board separates Pending checkout, Pending cleaning and Ready, with explicit actions and confirmations. Invitations are collapsible, users and roles compact, and the Superadmin hotel list expands one hotel at a time. English is the default CICO language; existing user language preferences and independent guest-facing translations are retained. Profile → Settings → Language changes the CICO preference.
 
+CheckoutBox configuration status no longer shows a green synchronization confirmation without a published configuration. Verification requires matching version, checksum and key count plus a recorded device confirmation time. Missing publication is neutral, and missing confirmation remains pending.
+
 Visual checks cover all available navigation pages plus public login/invitation/QR checkout, expected-departure dialog, room/QR settings, the six display editor tabs, firmware releases, device detail tabs and CheckoutBox RFID/key/trap/console/configuration views. Desktop and mobile overflow, browser exceptions and server failures are checked alongside screenshots. The audit also caught mobile room/QR overflow, empty editor notices, illegible active tabs while hovered and unnecessary mobile editor whitespace.
 
 ## External integration boundaries
