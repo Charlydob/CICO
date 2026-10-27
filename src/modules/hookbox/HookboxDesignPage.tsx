@@ -88,6 +88,15 @@ async function rgbUrl(a: {
   return c.toDataURL();
 }
 export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
+  const [contentKey, setContentKey] = useState("welcome");
+  const [mode, setMode] = useState<"preview" | "edit">("preview"),
+    [category, setCategory] = useState("Contenido"),
+    [selection, setSelection] = useState<{
+      key?: string;
+      color: string;
+      label: string;
+      rect: number[];
+    }>();
   const [selectedDevice, setSelectedDevice] = useState(deviceId || ""),
     [traces, setTraces] = useState<
       {
@@ -252,6 +261,23 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
       cancelled = true;
     };
   }, [theme, lang, screen, method, value, shift, accents, images, fontsReady]);
+  useEffect(() => {
+    const reveal = () => {
+      if (
+        mode === "edit" &&
+        selection &&
+        window.matchMedia("(max-width:900px)").matches
+      )
+        canvas.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+    reveal();
+    window.visualViewport?.addEventListener("resize", reveal);
+    window.addEventListener("resize", reveal);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", reveal);
+      window.removeEventListener("resize", reveal);
+    };
+  }, [mode, selection]);
   const hold = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   function stopHold() {
     if (hold.current) clearTimeout(hold.current);
@@ -267,6 +293,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
   }
   function startHold(e: React.PointerEvent<HTMLCanvasElement>) {
     stopHold();
+    if (mode === "edit") return;
     const { x, y } = canvasPoint(e);
     if (x >= 24 && x <= 548 && y >= 16 && y <= 72)
       hold.current = setTimeout(() => setScreen("service"), 5000);
@@ -276,6 +303,169 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
     const r = e.currentTarget.getBoundingClientRect(),
       x = ((e.clientX - r.left) * 800) / r.width,
       y = ((e.clientY - r.top) * 480) / r.height;
+    if (mode === "edit") {
+      let hit: { key?: string; color: string; label: string; rect: number[] } =
+        { color: "background", label: "Fondo", rect: [0, 0, 800, 480] };
+      if (y >= 16 && y <= 72 && x < 548)
+        hit =
+          x < 100 && theme.logo
+            ? { color: "background", label: "Logotipo", rect: [24, 16, 72, 56] }
+            : {
+                key: "hotelName",
+                color: "primary",
+                label: "Nombre del hotel",
+                rect: [theme.logo ? 112 : 24, 25, 436, 42],
+              };
+      else if (y >= 100 && y < 150 && x < 540)
+        hit = {
+          key: "welcome",
+          color: "primary",
+          label: "Bienvenida",
+          rect: [24, 100, 500, 48],
+        };
+      else if (screen === "home") {
+        if (y >= 153 && y < 180 && x < 530)
+          hit = {
+            key: "subtitle",
+            color: "secondary",
+            label: "Subtítulo",
+            rect: [24, 153, 500, 28],
+          };
+        else if (x >= 548 && y >= 204 && y < 444) {
+          hit =
+            y >= 420
+              ? {
+                  key: "qrHelp",
+                  color: "secondary",
+                  label: "Texto del QR",
+                  rect: [564, 424, 196, 18],
+                }
+              : {
+                  color: "surface",
+                  label: "Código QR",
+                  rect: [548, 204, 228, 240],
+                };
+          setCategory("QR y branding");
+        } else if (x >= 24 && x <= 524 && y >= 204 && y <= 444) {
+          const second = y >= 332,
+            top = second ? 332 : 204;
+          hit =
+            y < top + 40
+              ? {
+                  key: second ? "surname" : "id",
+                  color: "primary",
+                  label: "Etiqueta del campo",
+                  rect: [44, top + 16, 272, 28],
+                }
+              : x >= 332
+                ? {
+                    key: "search",
+                    color: "buttonText",
+                    label: "Botón de búsqueda",
+                    rect: [332, top + 46, 172, 48],
+                  }
+                : y >= top + 46 && y <= top + 94
+                  ? {
+                      key: second ? "placeholderSurname" : "placeholderId",
+                      color: "secondary",
+                      label: "Ejemplo del campo",
+                      rect: [44, top + 46, 272, 48],
+                    }
+                  : {
+                      color: "surface",
+                      label: "Tarjeta",
+                      rect: [24, top, 500, 112],
+                    };
+        }
+      } else if (screen === "form" || screen === "verify") {
+        if (y >= 152 && y < 196)
+          hit = {
+            key:
+              screen === "verify"
+                ? "verificationHelp"
+                : x < 274
+                  ? "id"
+                  : "surname",
+            color: screen === "verify" ? "secondary" : "buttonText",
+            label: "Texto del formulario",
+            rect: [24, 152, 752, 44],
+          };
+        else if (y >= 204 && y <= 252)
+          hit =
+            x >= 548
+              ? {
+                  key: screen === "verify" ? "verify" : "search",
+                  color: "buttonText",
+                  label: "Botón de búsqueda",
+                  rect: [548, 204, 228, 48],
+                }
+              : {
+                  key:
+                    screen === "form"
+                      ? method === "id"
+                        ? "placeholderId"
+                        : "placeholderSurname"
+                      : undefined,
+                  color: "inputBackground",
+                  label: "Campo de identificación",
+                  rect: [24, 204, 500, 48],
+                };
+        else if (y >= 270 && y < 438)
+          hit = {
+            color: "surface",
+            label: "Teclado",
+            rect: [24, 270, 752, 168],
+          };
+        else if (y >= 444)
+          hit = {
+            key:
+              x >= G.home[0]
+                ? "home"
+                : x >= G.delete[0]
+                  ? "delete"
+                  : x >= G.accents[0]
+                    ? undefined
+                    : x >= G.shift[0]
+                      ? "shift"
+                      : "space",
+            color: x >= G.home[0] ? "buttonText" : "text",
+            label: "Teclado",
+            rect: [24, 444, 752, 38],
+          };
+      } else if (
+        ["authorized", "delivery", "done", "error", "waiting"].includes(
+          screen,
+        ) &&
+        y >= 176 &&
+        y < 380
+      ) {
+        const key =
+          screen === "authorized"
+            ? "confirm"
+            : screen === "done"
+              ? "done"
+              : screen === "error"
+                ? "error"
+                : screen === "delivery"
+                  ? "delivery"
+                  : "searching";
+        hit = {
+          key:
+            y < 232 && ["authorized", "delivery", "done"].includes(screen)
+              ? "room"
+              : key,
+          color:
+            y < 232 && ["authorized", "delivery", "done"].includes(screen)
+              ? "primary"
+              : "text",
+          label: "Texto de la pantalla",
+          rect: [48, y < 232 ? 194 : 252, 704, 40],
+        };
+      }
+      if (hit.key && hit.key !== "hotelName") setContentKey(hit.key);
+      setSelection(hit);
+      return;
+    }
     if (
       screen !== "service" &&
       y >= G.languages[1] &&
@@ -476,164 +666,329 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
         Restaurar plantilla predeterminada
       </button>
       <p role="status">{validation || message}</p>
+      <div className="hb-actions" role="group" aria-label="Modo del editor">
+        <button
+          aria-pressed={mode === "preview"}
+          onClick={() => {
+            setMode("preview");
+            setSelection(undefined);
+          }}
+        >
+          Vista previa
+        </button>
+        <button aria-pressed={mode === "edit"} onClick={() => setMode("edit")}>
+          Editar
+        </button>
+        <span>
+          {mode === "edit"
+            ? "Selecciona un elemento de la pantalla para modificarlo"
+            : "Prueba la navegación sin cambiar el diseño"}
+        </span>
+      </div>
+      <div
+        className="hb-category-tabs"
+        role="tablist"
+        aria-label="Ajustes de pantalla"
+      >
+        {[
+          "Contenido",
+          "Colores",
+          "Tipografía",
+          "Distribución",
+          "Pantallas",
+          "QR y branding",
+        ].map((c) => (
+          <button
+            key={c}
+            role="tab"
+            aria-selected={category === c}
+            onClick={() => setCategory(c)}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
       <div className="hb-grid">
         <div className="hb-fields">
-          <label>
-            Nombre del hotel
-            <input
-              maxLength={32}
-              value={theme.hotelName}
-              onChange={(e) => update({ hotelName: e.target.value })}
-            />
-          </label>
-          <label>
-            Plantilla
-            <select
-              value={theme.template}
-              onChange={(e) => update({ template: e.target.value })}
-            >
-              <option value="guest-portal">Portal de huéspedes</option>
-            </select>
-          </label>
-          <label>
-            Tipografía
-            <select
-              value={theme.font}
-              onChange={(e) => update({ font: e.target.value })}
-            >
-              <option value="latin">Montserrat Latin (14/20/28/40)</option>
-            </select>
-          </label>
-          {Object.entries(theme.colors).map(([key, val]) => (
-            <label key={key}>
-              {{
-                text: "Texto",
-                primary: "Botones y acentos",
-                surface: "Tarjetas",
-                background: "Fondo",
-                buttonText: "Texto de botones",
-                secondary: "Subtítulos",
-                inputBackground: "Fondo de campos",
-                inputText: "Texto de campos",
-                inputBorder: "Borde de campos",
-              }[key] || key}
-              <input
-                type="color"
-                value={val}
-                onChange={(e) =>
-                  update({ colors: { ...theme.colors, [key]: e.target.value } })
-                }
-              />
-            </label>
-          ))}
-          {(["logo", "background"] as const).map((kind) => (
-            <label key={kind}>
-              {kind === "logo"
-                ? "Logotipo (máx. 160 × 64)"
-                : "Decoración (máx. 160 × 96)"}
-              <input
-                type="file"
-                accept="image/png,image/jpeg"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void run(() => upload(f, kind));
-                }}
-              />
-              <button onClick={() => update({ [kind]: null })}>Quitar</button>
-            </label>
-          ))}
-          <label>
-            <input
-              type="checkbox"
-              checked={theme.qr.enabled}
-              onChange={(e) =>
-                update({ qr: { ...theme.qr, enabled: e.target.checked } })
-              }
-            />
-            Mostrar QR
-          </label>
-          <label>
-            URL o contenido QR
-            <input
-              value={theme.qr.data}
-              onChange={(e) =>
-                update({ qr: { ...theme.qr, data: e.target.value } })
-              }
-            />
-          </label>
-          <label>
-            Tamaño QR
-            <select
-              value={theme.qr.size}
-              onChange={(e) =>
-                update({ qr: { ...theme.qr, size: Number(e.target.value) } })
-              }
-            >
-              {[128, 160, 192].map((n) => (
-                <option key={n}>{n}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Idioma inicial
-            <select
-              value={theme.defaultLanguage}
-              onChange={(e) => update({ defaultLanguage: e.target.value })}
-            >
-              {LANGUAGES.map((l) => (
-                <option key={l}>{l}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Espera (ms)
-            <input
-              type="number"
-              min={15000}
-              max={300000}
-              value={theme.idleMs}
-              onChange={(e) => update({ idleMs: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            Retorno (ms)
-            <input
-              type="number"
-              min={3000}
-              max={30000}
-              value={theme.returnMs}
-              onChange={(e) => update({ returnMs: Number(e.target.value) })}
-            />
-          </label>
-          <details>
-            <summary>Textos y traducciones · {lang}</summary>
-            {TEXT_KEYS.map((k) => (
-              <label key={k}>
-                {textLabels[k]}
+          {mode === "edit" && selection && (
+            <section className="hb-context" aria-label="Elemento seleccionado">
+              <strong>{selection.label}</strong>
+              {selection.key && (
+                <label>
+                  Texto seleccionado
+                  <input
+                    value={
+                      selection.key === "hotelName"
+                        ? theme.hotelName
+                        : texts[selection.key]
+                    }
+                    onChange={(e) =>
+                      selection.key === "hotelName"
+                        ? update({ hotelName: e.target.value })
+                        : update({
+                            texts: {
+                              ...theme.texts,
+                              [lang]: {
+                                ...texts,
+                                [selection.key!]: e.target.value,
+                              },
+                            },
+                          })
+                    }
+                  />
+                </label>
+              )}
+              <label>
+                Color del elemento
                 <input
-                  value={texts[k]}
+                  type="color"
+                  value={theme.colors[selection.color]}
                   onChange={(e) =>
                     update({
-                      texts: {
-                        ...theme.texts,
-                        [lang]: { ...texts, [k]: e.target.value },
+                      colors: {
+                        ...theme.colors,
+                        [selection.color]: e.target.value,
                       },
                     })
                   }
                 />
               </label>
+              <small>
+                El color se comparte con los elementos del mismo estilo.
+              </small>
+            </section>
+          )}
+          <fieldset
+            disabled={mode !== "edit"}
+            hidden={category !== "Contenido"}
+          >
+            <legend>Contenido</legend>
+            <label>
+              Nombre del hotel
+              <input
+                maxLength={32}
+                value={theme.hotelName}
+                onChange={(e) => update({ hotelName: e.target.value })}
+              />
+            </label>
+          </fieldset>
+          <fieldset
+            disabled={mode !== "edit"}
+            hidden={category !== "Distribución"}
+          >
+            <legend>Distribución segura</legend>
+            <p>
+              800 × 480 del CrowPanel instalado. Posiciones y márgenes fijados
+              por el firmware; arrastre todavía no disponible.
+            </p>
+            <label>
+              Plantilla
+              <select
+                value={theme.template}
+                onChange={(e) => update({ template: e.target.value })}
+              >
+                <option value="guest-portal">Portal de huéspedes</option>
+              </select>
+            </label>
+          </fieldset>
+          <fieldset
+            disabled={mode !== "edit"}
+            hidden={category !== "Tipografía"}
+          >
+            <legend>Tipografía compatible</legend>
+            <p>
+              Los tamaños y la alineación individuales requieren una nueva
+              versión del contrato y firmware; no se simulan en la vista previa.
+            </p>
+            <label>
+              Tipografía
+              <select
+                value={theme.font}
+                onChange={(e) => update({ font: e.target.value })}
+              >
+                <option value="latin">Montserrat Latin (14/20/28/40)</option>
+              </select>
+            </label>
+          </fieldset>
+          <fieldset disabled={mode !== "edit"} hidden={category !== "Colores"}>
+            <legend>Colores</legend>
+            {Object.entries(theme.colors).map(([key, val]) => (
+              <label key={key}>
+                {{
+                  text: "Texto",
+                  primary: "Botones y acentos",
+                  surface: "Tarjetas",
+                  background: "Fondo",
+                  buttonText: "Texto de botones",
+                  secondary: "Subtítulos",
+                  inputBackground: "Fondo de campos",
+                  inputText: "Texto de campos",
+                  inputBorder: "Borde de campos",
+                }[key] || key}
+                <input
+                  type="color"
+                  value={val}
+                  onChange={(e) =>
+                    update({
+                      colors: { ...theme.colors, [key]: e.target.value },
+                    })
+                  }
+                />
+              </label>
             ))}
+          </fieldset>
+          <fieldset
+            disabled={mode !== "edit"}
+            hidden={category !== "QR y branding"}
+          >
+            <legend>QR y branding</legend>
+            {(["logo", "background"] as const).map((kind) => (
+              <label key={kind}>
+                {kind === "logo"
+                  ? "Logotipo (máx. 160 × 64)"
+                  : "Decoración (máx. 160 × 96)"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void run(() => upload(f, kind));
+                  }}
+                />
+                <button onClick={() => update({ [kind]: null })}>Quitar</button>
+              </label>
+            ))}
+            <label>
+              <input
+                type="checkbox"
+                checked={theme.qr.enabled}
+                onChange={(e) =>
+                  update({ qr: { ...theme.qr, enabled: e.target.checked } })
+                }
+              />
+              Mostrar QR
+            </label>
+            <label>
+              URL o contenido QR
+              <input
+                value={theme.qr.data}
+                onChange={(e) =>
+                  update({ qr: { ...theme.qr, data: e.target.value } })
+                }
+              />
+            </label>
+            <label>
+              Tamaño QR
+              <select
+                value={theme.qr.size}
+                onChange={(e) =>
+                  update({ qr: { ...theme.qr, size: Number(e.target.value) } })
+                }
+              >
+                {[128, 160, 192].map((n) => (
+                  <option key={n}>{n}</option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+          <fieldset
+            disabled={mode !== "edit"}
+            hidden={category !== "Contenido"}
+          >
+            <legend>Idiomas y traducciones</legend>
+            <label>
+              Idioma inicial
+              <select
+                value={theme.defaultLanguage}
+                onChange={(e) => update({ defaultLanguage: e.target.value })}
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l}>{l}</option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+          <fieldset
+            disabled={mode !== "edit"}
+            hidden={category !== "Pantallas"}
+          >
+            <legend>Pantallas actuales</legend>
+            <p>
+              Inicio → Identificación → Búsqueda → Verificación → Habitación →
+              Entrega. La vista previa simula las transiciones; el dispositivo
+              usa peticiones reales. La selección de etapas opcionales aún no
+              está disponible.
+            </p>
+            <label>
+              Espera (ms)
+              <input
+                type="number"
+                min={15000}
+                max={300000}
+                value={theme.idleMs}
+                onChange={(e) => update({ idleMs: Number(e.target.value) })}
+              />
+            </label>
+            <label>
+              Retorno (ms)
+              <input
+                type="number"
+                min={3000}
+                max={30000}
+                value={theme.returnMs}
+                onChange={(e) => update({ returnMs: Number(e.target.value) })}
+              />
+            </label>
+          </fieldset>
+          <fieldset
+            disabled={mode !== "edit"}
+            hidden={category !== "Contenido"}
+          >
+            <legend>Textos públicos</legend>
+            <details open>
+              <summary>Textos y traducciones · {lang}</summary>
+              <label>
+                Elemento de texto
+                <select
+                  value={contentKey}
+                  onChange={(e) => setContentKey(e.target.value)}
+                >
+                  {TEXT_KEYS.map((k) => (
+                    <option key={k} value={k}>
+                      {textLabels[k]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Contenido
+                <input
+                  value={texts[contentKey]}
+                  onChange={(e) =>
+                    update({
+                      texts: {
+                        ...theme.texts,
+                        [lang]: { ...texts, [contentKey]: e.target.value },
+                      },
+                    })
+                  }
+                />
+              </label>
+            </details>
+          </fieldset>
+          <details>
+            <summary>Ajustes técnicos y asignación de habitaciones</summary>
+            <label>
+              Habitación:gancho · un par por línea
+              <textarea
+                rows={6}
+                value={mapping}
+                onChange={(e) => setMapping(e.target.value)}
+              />
+            </label>
           </details>
-          <label>
-            Habitación:gancho · un par por línea
-            <textarea
-              rows={6}
-              value={mapping}
-              onChange={(e) => setMapping(e.target.value)}
-            />
-          </label>
         </div>
-        <div>
+        <div className="hb-stage">
           <div className="hb-actions">
             <select
               aria-label="Idioma de vista previa"
@@ -676,17 +1031,31 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               </button>
             ))}
           </div>
-          <canvas
-            ref={canvas}
-            width={800}
-            height={480}
-            onClick={click}
-            onPointerDown={startHold}
-            onPointerUp={stopHold}
-            onPointerCancel={stopHold}
-            onPointerLeave={stopHold}
-            aria-label="Vista previa interactiva CrowPanel 800 por 480"
-          />
+          <div className="hb-canvas-wrap">
+            <canvas
+              ref={canvas}
+              width={800}
+              height={480}
+              onClick={click}
+              onPointerDown={startHold}
+              onPointerUp={stopHold}
+              onPointerCancel={stopHold}
+              onPointerLeave={stopHold}
+              aria-label="Vista previa interactiva CrowPanel 800 por 480"
+            />
+            {mode === "edit" && selection && (
+              <div
+                className="hb-selected"
+                aria-hidden="true"
+                style={{
+                  left: selection.rect[0] / 8 + "%",
+                  top: selection.rect[1] / 4.8 + "%",
+                  width: selection.rect[2] / 8 + "%",
+                  height: selection.rect[3] / 4.8 + "%",
+                }}
+              />
+            )}
+          </div>
           <p>
             Vista previa interactiva: no consulta reservas ni acciona llaves.
             Posiciones a 800 × 480. Fuente y anchos derivados del firmware. El
@@ -694,90 +1063,93 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
             validar el aspecto final en el panel. SVG y fondos a pantalla
             completa no admitidos por el presupuesto de memoria.
           </p>
-          <h2>Versiones</h2>
-          {data.versions.map((v) => (
-            <div key={v.id} className="hb-version">
-              <span>
-                {new Date(v.createdAt).toLocaleString()} · {v.id}
-              </span>
-              <button
-                disabled={busy}
-                onClick={() => {
-                  setTheme(upgradeTheme(v.manifest.theme));
-                  if (v.manifest.roomMapping)
-                    setMapping(
-                      v.manifest.roomMapping
-                        .map((r) => `${r.room}:${r.hook}`)
-                        .join("\n"),
+          <details>
+            <summary>Versiones publicadas y diagnóstico</summary>
+            <h2>Versiones</h2>
+            {data.versions.map((v) => (
+              <div key={v.id} className="hb-version">
+                <span>
+                  {new Date(v.createdAt).toLocaleString()} · {v.id}
+                </span>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setTheme(upgradeTheme(v.manifest.theme));
+                    if (v.manifest.roomMapping)
+                      setMapping(
+                        v.manifest.roomMapping
+                          .map((r) => `${r.room}:${r.hook}`)
+                          .join("\n"),
+                      );
+                    setMessage(
+                      "Versión anterior cargada para revisar; publica para restaurarla",
                     );
-                  setMessage(
-                    "Versión anterior cargada para revisar; publica para restaurarla",
-                  );
-                }}
-              >
-                Revisar / restaurar
-              </button>
-            </div>
-          ))}
-          <h2>Diagnóstico JSON</h2>
-          <button
-            disabled={busy}
-            onClick={() =>
-              void run(async () =>
-                setTraces(
-                  await hookboxRequest(
-                    "diagnostics" +
-                      (selectedDevice
-                        ? "?deviceId=" + encodeURIComponent(selectedDevice)
-                        : ""),
+                  }}
+                >
+                  Revisar / restaurar
+                </button>
+              </div>
+            ))}
+            <h2>Diagnóstico JSON</h2>
+            <button
+              disabled={busy}
+              onClick={() =>
+                void run(async () =>
+                  setTraces(
+                    await hookboxRequest(
+                      "diagnostics" +
+                        (selectedDevice
+                          ? "?deviceId=" + encodeURIComponent(selectedDevice)
+                          : ""),
+                    ),
                   ),
-                ),
-              )
-            }
-          >
-            Actualizar mensajes
-          </button>
-          <p>
-            Últimos 50 intercambios. Credenciales, apellidos, reservas y pruebas
-            de identidad se ocultan antes de guardarse.
-          </p>
-          {traces.map((t) => (
-            <details key={t.id}>
-              <summary>
-                {t.createdAt} · {t.path} · HTTP {t.status}
-              </summary>
-              <strong>Petición</strong>
-              <pre>{JSON.stringify(t.request, null, 2)}</pre>
-              <strong>Respuesta</strong>
-              <pre>{JSON.stringify(t.response, null, 2)}</pre>
-            </details>
-          ))}
-          <h2>Aplicación por dispositivo</h2>
-          {data.devices.map((d) => (
-            <article key={d.id}>
-              <strong>{d.name}</strong>
-              <p>
-                Deseada: {d.uiDesiredVersion || "—"}
-                <br />
-                Aplicada: {d.uiAppliedVersion || "—"}
-                <br />
-                {d.uiRejectedReason}
-              </p>
-              <details>
-                <summary>Eventos recientes</summary>
-                {d.events?.map((event) => (
-                  <p key={event.id}>
-                    <strong>
-                      {new Date(event.createdAt).toLocaleString()} ·{" "}
-                      {event.type}
-                    </strong>
-                    <br />
-                    {event.detail}
-                  </p>
-                ))}
+                )
+              }
+            >
+              Actualizar mensajes
+            </button>
+            <p>
+              Últimos 50 intercambios. Credenciales, apellidos, reservas y
+              pruebas de identidad se ocultan antes de guardarse.
+            </p>
+            {traces.map((t) => (
+              <details key={t.id}>
+                <summary>
+                  {t.createdAt} · {t.path} · HTTP {t.status}
+                </summary>
+                <strong>Petición</strong>
+                <pre>{JSON.stringify(t.request, null, 2)}</pre>
+                <strong>Respuesta</strong>
+                <pre>{JSON.stringify(t.response, null, 2)}</pre>
               </details>
-            </article>
-          ))}
+            ))}
+            <h2>Aplicación por dispositivo</h2>
+            {data.devices.map((d) => (
+              <article key={d.id}>
+                <strong>{d.name}</strong>
+                <p>
+                  Deseada: {d.uiDesiredVersion || "—"}
+                  <br />
+                  Aplicada: {d.uiAppliedVersion || "—"}
+                  <br />
+                  {d.uiRejectedReason}
+                </p>
+                <details>
+                  <summary>Eventos recientes</summary>
+                  {d.events?.map((event) => (
+                    <p key={event.id}>
+                      <strong>
+                        {new Date(event.createdAt).toLocaleString()} ·{" "}
+                        {event.type}
+                      </strong>
+                      <br />
+                      {event.detail}
+                    </p>
+                  ))}
+                </details>
+              </article>
+            ))}
+          </details>
         </div>
       </div>
     </section>
