@@ -61,7 +61,7 @@ export function HookboxIntegrationPanel({ deviceId }: { deviceId: string }) {
         ? "2026-10-28T13:28:00.000Z" :
       sources.find((s) => s.value === f.source)?.sample || "",
   ]));
-  const webhookUrl = getBackendUrl().replace(/\/$/, "") + (config?.webhookUrlPath || "");
+  const webhookUrl = new URL(config?.webhookUrlPath || "/", getBackendUrl() || window.location.origin).toString();
   return <section className="panel compact-device-section" style={{ display: "grid", gap: 18 }}>
     <header><h3>Conexión con el sistema del hotel</h3>
       <p>Configura aquí qué datos envía CICO al hotel y dónde recibe las autorizaciones. No hace falta modificar el firmware de los Adafruit.</p>
@@ -103,7 +103,7 @@ export function HookboxIntegrationPanel({ deviceId }: { deviceId: string }) {
       </div>
       <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <input type="checkbox" checked={outbound.enabled} onChange={(e) => setOutbound({ ...outbound, enabled: e.target.checked })}/>
-        Habilitar configuración de salida
+        Marcar configuración de salida como preparada (NO envía solicitudes)
       </label>
       <small>Guardar no envía ninguna petición al hotel. El envío real sólo debe activarse al integrar su contrato definitivo.</small>
       <button type="button" className="primary-button" disabled={busy} onClick={() => void perform(
