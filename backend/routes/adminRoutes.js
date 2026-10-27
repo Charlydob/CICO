@@ -1,3 +1,4 @@
+import { getDeviceIntegration, saveDeviceIntegration, rotateDeviceWebhookSecret } from "../hookbox/integration.js";
 import { MODULE_REGISTRY } from "../moduleRegistry.js";
 import {
   createTenant,
@@ -88,6 +89,24 @@ function requestBaseUrl(request) {
 export async function handleAdminRoute({ request, pathname, body, context }) {
   const { database, session } = context;
   requirePlatformAdmin(session);
+
+  const deviceIntegration = pathname.match(/^\/api\/admin\/devices\/([a-f0-9-]{36})\/integration(\/rotate-secret)?$/);
+  if (deviceIntegration) {
+    const id = deviceIntegration[1];
+    const device = await database.prisma.device.findUnique({
+      where: { id }, select: { tenantId: true, hardwareModel: true },
+    });
+    if (!device?.tenantId || device.hardwareModel !== "CROWPANEL_7_V3") {
+      throw Object.assign(new Error("HOOKBOX device not found."), { statusCode: 404 });
+    }
+    if (request.method === "GET" && !deviceIntegration[2])
+      return { status: 200, payload: await getDeviceIntegration(database, device.tenantId, id) };
+    if (request.method === "POST" && !deviceIntegration[2])
+      return { status: 200, payload: await saveDeviceIntegration(database, device.tenantId, id, body) };
+    if (request.method === "POST" && deviceIntegration[2])
+      return { status: 200, payload: await rotateDeviceWebhookSecret(database, device.tenantId, id) };
+    return { status: 405, payload: { error: "Method not allowed" } };
+  }
 
   if (request.method === "GET" && pathname === "/api/admin/tenants") {
     const [tenants, memberships, users] = await Promise.all([
