@@ -74,6 +74,11 @@ export async function handleOtaRoute({
   const isAdmin = /^\/api\/admin\/(devices|firmware-releases)(\/|$)/.test(
     pathname,
   );
+  // These device settings are owned by the admin router, not OTA.
+  if (/^\/api\/admin\/devices\/[a-f0-9-]{36}\/(hooks|integration)(\/|$)/.test(pathname)) {
+    requireOtaTransport(request);
+    return false;
+  }
   if (!isDevice && !isAdmin) return false;
   requireOtaTransport(request);
   let payload,
