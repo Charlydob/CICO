@@ -81,7 +81,7 @@ export function DeviceDetailPanel({device,devices,tenants,busy,run,onBack,onStar
       {device.hardwareModel==="CROWPANEL_7_V3"&&device.tenantId&&<button type="button" className={section==="integration"?"active":""} onClick={()=>setSection("integration")}>Conexión con hotel</button>}
     </nav>
 
-    {section==="integration"&&device.tenantId&&<HookboxIntegrationPanel deviceId={device.id}/>}
+    {section==="integration"&&device.tenantId&&<HookboxIntegrationPanel deviceId={device.id} platformAdmin/>}
 
     {section==="summary"&&<>
       <div className="device-summary-grid">{summary.map(([label,value])=><div className="device-summary-item" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
