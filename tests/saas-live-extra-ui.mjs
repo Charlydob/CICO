@@ -32,6 +32,11 @@ async function context(role) {
   return { ctx, page };
 }
 async function capture(page, name) {
+  assert.equal(
+    await page.getByText("Failed to fetch", { exact: true }).count(),
+    0,
+    name + " must not conceal a failed data load",
+  );
   for (const [size, viewport] of [
     ["desktop", { width: 1440, height: 1000 }],
     ["mobile", { width: 390, height: 844 }],
@@ -189,6 +194,12 @@ await a
   .getByRole("button", { name: "Details", exact: true })
   .click();
 await a.getByRole("button", { name: "Keys and controls", exact: true }).click();
+await a.getByText("No configuration published", { exact: true }).waitFor();
+assert.equal(
+  await a.locator(".config-sync.synced").count(),
+  0,
+  "An unpublished configuration must never appear verified",
+);
 for (const name of ["Llaves RFID", "Trampilla", "Consola", "Configuración"]) {
   await a.getByRole("button", { name, exact: true }).click();
   await capture(

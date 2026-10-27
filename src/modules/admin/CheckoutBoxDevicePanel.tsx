@@ -21,13 +21,15 @@ const keyTitle=(key:{room:string;keyName?:string;name?:string})=>roomTitle(key.r
 const blankKey={uid:"",name:"",room:"",authorized:true,active:true};
 
 function SyncStatus({device}: {device:PhysicalDevice}) {
-  const pending=Boolean(device.desiredConfig?.version&&(
-    device.desiredConfig.version!==device.configVersion||
-    device.desiredConfig.checksum!==device.configChecksum||
-    (device.desiredConfig.allowedRfids?.length||0)!==(device.authorizedRfidCount??0)
+  const desired=device.desiredConfig;
+  const configured=Boolean(desired?.version&&desired.checksum);
+  const pending=Boolean(desired&&configured&&(
+    desired.version!==device.configVersion||
+    desired.checksum!==device.configChecksum||
+    (desired.allowedRfids?.length||0)!==(device.authorizedRfidCount??0)||!device.configAppliedAt
   ));
-  const state=device.configRejectedReason?"error":pending?"pending":"synced";
-  return <div className={`config-sync ${state}`}><strong>{state==="error"?"Error al aplicar configuración":state==="pending"?"Configuración pendiente":"Configuración sincronizada"}</strong><span>{state==="error"?device.configRejectedReason:state==="pending"?"Guardada en CICO; esperando confirmación del ESP32.":`Confirmada ${date(device.configAppliedAt)}`}</span></div>;
+  const state=device.configRejectedReason?"error":!configured?"unconfigured":pending?"pending":"synced";
+  return <div className={`config-sync ${state}`}><strong>{state==="error"?"Configuration rejected":state==="unconfigured"?"No configuration published":state==="pending"?"Waiting for device confirmation":"Configuration verified"}</strong><span>{state==="error"?device.configRejectedReason:state==="unconfigured"?"Publish a configuration before checking synchronization.":state==="pending"?"Saved in CICO; waiting for the device to confirm its version, checksum and keys.":`Confirmed ${date(device.configAppliedAt)}`}</span></div>;
 }
 
 export function CheckoutBoxDevicePanel({device,busy,run}:Props) {
