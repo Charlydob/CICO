@@ -4,6 +4,8 @@ import {authorizeCustomerRoute,authorizeEvidence,customerIntegrationSettings} fr
 import { createHookboxService } from './hookbox/service.js';
 import { createCheckinProvider } from './hookbox/provider.js';
 import { handleHookboxRoute } from './hookbox/routes.js';
+import { receiveDeviceWebhook } from './hookbox/integration.js';
+import { requireOtaTransport } from './routes/otaRoutes.js';
 import { createServer } from "node:http";
 import { handleOtaRoute } from "./routes/otaRoutes.js";
 import { createOtaService } from "./services/otaService.js";
@@ -501,6 +503,37 @@ const server = createServer(async (request, response) => {
   const pathname = parsedUrl.pathname;
 
   try {
+    const hotelWebhook = pathname.match(/^\/api\/integrations\/hookbox\/devices\/([a-f0-9-]{36})\/webhook$/);
+    if (hotelWebhook) {
+      requireOtaTransport(request);
+      if (request.method !== "POST") {
+        sendJson(response, 405, { error: "Use POST" });
+        return;
+      }
+      if (!deviceLimiter.allow(request.socket?.remoteAddress || "unknown")) {
+        sendJson(response, 429, { error: "Too many requests" });
+        return;
+      }
+      if (!/^application\/json(?:;|$)/i.test(request.headers["content-type"] || "")) {
+        sendJson(response, 415, { error: "Use application/json" });
+        return;
+      }
+      const raw = await readRawBody(request);
+      if (raw.length > 4096) {
+        sendJson(response, 413, { error: "Webhook too large" });
+        return;
+      }
+      let payload;
+      try { payload = JSON.parse(raw.toString("utf8")); }
+      catch { sendJson(response, 400, { error: "Invalid JSON" }); return; }
+      const result = await receiveDeviceWebhook({
+        database, deviceId: hotelWebhook[1],
+        token: request.headers["x-cico-webhook-secret"],
+        payload, service: hookboxService,
+      });
+      sendJson(response, 200, { ok: true, ...result });
+      return;
+    }
     if (await handleHookboxRoute({request,response,pathname,service:hookboxService,otaService,getContext:getProtectedContext,limiter:deviceLimiter,responseHeaders:corsHeaders(request)})) return;
     if (await handleOtaRoute({ request, response, pathname, parsedUrl, service: otaService,
       storage: firmwareStorage, getContext: getProtectedContext, limiter: deviceLimiter, responseHeaders: corsHeaders(request) })) return;
