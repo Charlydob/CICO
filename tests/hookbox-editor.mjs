@@ -77,6 +77,13 @@ await page.getByText("Borrador guardado", { exact: true }).waitFor();
 assert.equal(draft.hotelName, "Hotel Prueba");
 assert.equal(draft.texts.de.welcome, "Guten Tag");
 assert.equal(draft.colors.primary, "#c5a575");
+await page.getByRole('button',{name:'Búsqueda',exact:true}).click();await page.waitForTimeout(150);
+const frozenWaiting=await page.locator('canvas').evaluate(c=>c.toDataURL());
+await page.waitForTimeout(1000);
+assert.ok(await page.locator('canvas').evaluate(c=>c.toDataURL())===frozenWaiting,'Edit mode freezes automatic preview transitions');
+assert.equal(await page.locator('.hb-selected').count(),0);
+await page.getByRole('button',{name:'Inicio',exact:true}).click();
+
 await page.getByRole("button", { name: "Vista previa", exact: true }).click();
 const canvas = page.locator("canvas");
 const pixels = () => canvas.evaluate((c) => c.toDataURL());

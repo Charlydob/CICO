@@ -123,6 +123,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
     [images, setImages] = useState<Record<string, string>>({});
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
+    if (mode === "edit") return;
     if (screen === "waiting") {
       const timer = setTimeout(() => setScreen("verify"), 600);
       return () => clearTimeout(timer);
@@ -138,7 +139,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
       );
       return () => clearTimeout(timer);
     }
-  }, [screen, theme.idleMs, theme.returnMs, value]);
+  }, [mode, screen, theme.idleMs, theme.returnMs, value]);
   const texts = theme.texts[lang];
   useEffect(() => {
     void document.fonts
@@ -1013,6 +1014,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                 key={s}
                 onClick={() => {
                   setScreen(s);
+                  setSelection(undefined);
                   setValue("");
                 }}
               >
