@@ -1,3 +1,5 @@
+import {CheckoutWorkflow} from "./CheckoutWorkflow";
+import {useAuth} from "../../auth/AuthContext";
 import { CalendarCheck, Download, KeyRound, Plus, Printer, QrCode, RefreshCw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -177,6 +179,9 @@ async function printableQrDataUrl({
 }
 
 export function CheckoutPage() {
+  const {session,activeTenantId}=useAuth();
+  const role=session?.memberships.find(m=>m.tenantId===activeTenantId)?.role;
+  const canManage=Boolean(session?.isPlatformAdmin||["tenant_admin","manager"].includes(role||""));
   const [overview, setOverview] = useState<CheckoutOverview>();
   const [todayModalOpen, setTodayModalOpen] = useState(false);
   const [todayRoomIds, setTodayRoomIds] = useState<Set<string>>(new Set());
@@ -197,7 +202,7 @@ export function CheckoutPage() {
   const [notice, setNotice] = useState("");
 
   async function reload() {
-    const [nextOverview, nextKeys] = await Promise.all([getCheckoutOverview(), getCheckoutKeys()]);
+    const [nextOverview, nextKeys] = await Promise.all([getCheckoutOverview(), canManage?getCheckoutKeys():Promise.resolve([])]);
     setOverview(nextOverview);
     setKeys(nextKeys);
     setSelectedRoomId((current) => current || nextOverview.rooms[0]?.id || "");
@@ -278,8 +283,8 @@ export function CheckoutPage() {
   }
 
   async function saveRoomStatus(room: Room, status: RoomStatus) {
-    await updateRoom(room.id, { status });
-    await reload();
+    if (!window.confirm("Start or correct room occupancy? Pending cleaning must be completed on the board.")) return;
+    try { await updateRoom(room.id, { status }); await reload(); } catch(error) { setNotice(error instanceof Error ? error.message : "Could not update room."); }
   }
 
   async function deactivateRoom(room: Room) {
@@ -379,10 +384,10 @@ export function CheckoutPage() {
   }
 
   async function saveTodayCheckouts() {
-    await setTodayCheckoutRooms([...todayRoomIds]);
+    try { await setTodayCheckoutRooms([...todayRoomIds]);
     setTodayModalOpen(false);
     setNotice("Today's expected check-outs were saved.");
-    await reload();
+    await reload(); } catch(error) { setNotice(error instanceof Error ? error.message : "Could not save expected departures."); }
   }
 
   function downloadQr(item = qrPreview) {
@@ -435,10 +440,10 @@ export function CheckoutPage() {
           <p>Guest key checkout events and room readiness.</p>
         </div>
         <div className="button-row">
-          <button type="button" className="primary" onClick={openTodayCheckouts}>
+          {canManage&&<button type="button" className="primary" onClick={openTodayCheckouts}>
             <CalendarCheck size={15} />
-            Check-outs today
-          </button>
+            Checkout Today
+          </button>}
           <button type="button" onClick={() => void reload()}>
             <RefreshCw size={15} />
             Refresh
@@ -450,14 +455,15 @@ export function CheckoutPage() {
 
       {todayModalOpen && (
         <div className="modal-backdrop" role="presentation">
-          <section className="checkout-today-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-today-title">
-            <button className="modal-close" type="button" aria-label="Close" onClick={() => setTodayModalOpen(false)}><X size={16} /></button>
+          <section className="checkout-today-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-today-title" onKeyDown={event=>{if(event.key==='Escape')setTodayModalOpen(false);if(event.key==='Tab'){const buttons=Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')),first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus()}}}}>
+            <button className="modal-close" type="button" aria-label="Close" autoFocus onClick={() => setTodayModalOpen(false)}><X size={16} /></button>
             <h2 id="checkout-today-title">Check-outs today</h2>
             <p>Select every room expected to check out on {overview?.todayDate}.</p>
             <div className="checkout-today-room-grid">
               {activeRooms.map((room) => {
                 const selected = todayRoomIds.has(room.id);
                 return <button key={room.id} type="button" className={selected ? "selected" : ""}
+                  disabled={["checkout_received","ready_for_cleaning","cleaning"].includes(room.status)} title={["checkout_received","ready_for_cleaning","cleaning"].includes(room.status)?"Already checked out. Complete or correct its cleaning on the board.":undefined}
                   aria-pressed={selected} onClick={() => setTodayRoomIds((current) => {
                     const next = new Set(current); selected ? next.delete(room.id) : next.add(room.id); return next;
                   })}>{room.number}</button>;
@@ -471,6 +477,8 @@ export function CheckoutPage() {
         </div>
       )}
 
+      <CheckoutWorkflow overview={overview} canManage={canManage} onCheckout={checkoutManually} onRefresh={reload}/>
+      {canManage&&<details className="checkout-management"><summary>Manage rooms, QR codes and checkout settings</summary>
       <div className="segmented-control compact" role="tablist" aria-label="Checkout views">
         <button className={tab === "board" ? "active" : ""} type="button" onClick={() => setTab("board")}>
           Board
@@ -514,13 +522,13 @@ export function CheckoutPage() {
                       Manual
                     </button>
                     <select
+                      aria-label={"Occupancy for room " + room.number}
+                      disabled={["checkout_received","ready_for_cleaning","cleaning"].includes(room.status)}
                       value={room.status}
                       onChange={(event) => saveRoomStatus(room, event.target.value as RoomStatus)}
                     >
                       <option value="occupied">Occupied</option>
-                      <option value="ready_for_cleaning">Ready for cleaning</option>
-                      <option value="cleaning">Cleaning</option>
-                      <option value="ready">Ready</option>
+                      {!["occupied", "unknown"].includes(room.status) && <option value={room.status}>{roomStatusLabel(room.status)}</option>}
                       <option value="unknown">Unknown</option>
                     </select>
                   </div>
@@ -754,6 +762,7 @@ export function CheckoutPage() {
           </section>
         </div>
       )}
+      </details>}
     </section>
   );
 }
@@ -771,7 +780,7 @@ function RecentEvents({ events, rooms }: { events: CheckoutEvent[]; rooms: Room[
             <div key={event.id}>
               <span>{new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
               <strong>Room {room?.number || "-"}</strong>
-              <span>Checkout via {event.source.toUpperCase()}</span>
+              <span>Checkout via {event.status==="reversed"?"Reversed":event.source.toUpperCase()}</span>
             </div>
           );
         })}

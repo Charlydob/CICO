@@ -223,7 +223,9 @@
   background: #fff;
   padding: 10px 15px;
 }
-.hb-category-tabs [aria-selected="true"],
+.hb-category-tabs button[aria-selected="true"],
+.hb-category-tabs button[aria-selected="true"]:hover,
+.hb-editor button[aria-pressed="true"]:hover,
 .hb-admin-tabs .active,
 .hb-editor [aria-pressed="true"] {
   background: #264b40;
@@ -342,7 +344,7 @@
   display: none;
 }
 .hb-fields:has(fieldset:disabled)::after {
-  content: "Pulsa Editar para cambiar el diseño";
+  content: "Select Edit to customize the display";
   color: #6b6457;
 }
 .hb-fields:has(fieldset:not(:disabled))::after {
@@ -368,7 +370,7 @@
   .hb-context input:not([type="color"]) {
     min-height: 40px;
   }
-  .hb-stage .hb-canvas-wrap {
+  .hb-editor:has(.hb-context) .hb-stage .hb-canvas-wrap {
     margin-bottom: 36dvh;
   }
 }

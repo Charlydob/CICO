@@ -57,40 +57,30 @@ assert.equal(
   await page.getByRole("button", { name: "Administración global" }).count(),
   0,
 );
-await page.getByRole("link", { name: "Ver dispositivo" }).click();
+await page.getByRole("link", { name: "View device" }).click();
 await page
-  .getByRole("link", { name: "Personalizar pantalla", exact: true })
+  .getByRole("link", { name: "Customize display", exact: true })
   .click();
-await page.getByLabel("Nombre del hotel").waitFor({ state: "attached" });
+await page.getByLabel("Hotel name").waitFor({ state: "attached" });
 assert.equal(
-  await page.getByLabel("Nombre del hotel").inputValue(),
+  await page.getByLabel("Hotel name").inputValue(),
   "Test Hotel",
 );
 assert.equal(
-  await page.getByLabel("Configuración de pantalla").isDisabled(),
+  await page.getByLabel("Display configuration").isDisabled(),
   true,
 );
 assert.equal(new URL(page.url()).pathname, base + "/" + id + "/screen");
-await page.getByRole("link", { name: "Volver al dispositivo" }).click();
+await page.getByRole("link", { name: "Back to device" }).click();
 await page
-  .getByRole("link", { name: "Personalizar pantalla", exact: true })
+  .getByRole("link", { name: "Customize display", exact: true })
   .waitFor();
 await page.setViewportSize({ width: 390, height: 844 });
-await page.locator(".bottom-nav button").nth(1).click();
-await page.waitForURL("**/operations");
-assert.equal(await page.locator(".bottom-nav button.active").count(), 1);
-assert.equal(
-  await page.locator(".bottom-nav button").first().getAttribute("class"),
-  "",
-);
-assert.equal(
-  await page
-    .getByText("No hay módulos operativos activados para este hotel.", {
-      exact: true,
-    })
-    .count(),
-  1,
-);
+assert.equal(await page.locator('.bottom-nav button').filter({hasText:/Operations/i}).count(),0);
+await page.locator('.bottom-nav button').filter({hasText:'Settings'}).click();
+await page.waitForURL('**/settings');
+assert.equal(await page.locator('.bottom-nav button.active').count(),1);
+assert.equal(await page.locator('.bottom-nav button').first().getAttribute('class'),'');
 platform = true;
 await page.goto("http://127.0.0.1:4321/admin/devices");
 await page.getByRole("navigation", { name: "Admin", exact: true }).waitFor();

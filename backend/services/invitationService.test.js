@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   acceptUserInvitation,
-  createUserInvitation,
+  createUserInvitation,getInvitationLink,
   listTenantUsersPayload,
   revokeUserInvitation,
 } from "./invitationService.js";
@@ -194,22 +194,7 @@ test("staff cannot invite users", async () => {
   );
 });
 
-test("manager cannot invite or manage tenant users", async () => {
-  const database = createFakeDatabase();
-
-  await assertRejectsWithStatus(
-    () =>
-      createUserInvitation(database, managerSession, "hotelA", {
-        email: "employee@example.com",
-        role: "staff",
-      }),
-    403,
-  );
-  await assertRejectsWithStatus(
-    () => listTenantUsersPayload(database, managerSession, "hotelA"),
-    403,
-  );
-});
+test("manager can manage own hotel staff but cannot grant owner access",async()=>{const db=createFakeDatabase();const invitation=await createUserInvitation(db,managerSession,"hotelA",{email:"employee@example.com",role:"staff"});assert.equal(invitation.tenantId,"hotelA");assert.ok(await listTenantUsersPayload(db,managerSession,"hotelA"));await assertRejectsWithStatus(()=>createUserInvitation(db,managerSession,"hotelA",{email:"owner@example.com",role:"tenant_admin"}),403);});
 
 test("staff cannot list or manage tenant users", async () => {
   const database = createFakeDatabase();
@@ -322,3 +307,5 @@ test("user from tenant A does not get access to tenant B", async () => {
     403,
   );
 });
+
+test('copying an invitation never invalidates the emailed link and does not expose its encrypted token',async()=>{const db=createFakeDatabase(),invitation=await createUserInvitation(db,tenantAdminSession,'hotelA',{email:'copy@example.com',role:'staff'}),before=db.data.userInvitations[invitation.id].tokenHash;const copy=await getInvitationLink(db,tenantAdminSession,'hotelA',invitation.id,'http://127.0.0.1:5173');assert.equal(copy.inviteUrl,invitation.inviteUrl);assert.equal(db.data.userInvitations[invitation.id].tokenHash,before);assert.equal(invitation.encryptedToken,undefined);assert.notEqual(db.data.userInvitations[invitation.id].encryptedToken,tokenFromInviteUrl(invitation));});

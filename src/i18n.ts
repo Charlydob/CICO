@@ -27,7 +27,7 @@ export type TranslationKey =
 
 const translations: Record<Locale, Record<TranslationKey, string>> = {
   en: {
-    appName: "HotelApp", checkOut: "Check out", hotelCheckout: "Hotel checkout",
+    appName: "CICO", checkOut: "Check out", hotelCheckout: "Hotel checkout",
     scanInstruction: "Scan the QR code on the back of your key.", scanKey: "Scan key", scanning: "Scanning QR",
     readyTitle: "Ready to check out?", readyBody: "Please make sure the room is empty and you haven't left anything behind.",
     room: "Room", confirmCheckout: "Confirm checkout", completed: "Checkout completed",
@@ -53,7 +53,7 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     noRoomsPending: "No rooms pending.", averageCleaningToday: "Average cleaning today",
   },
   de: {
-    appName: "HotelApp", checkOut: "Auschecken", hotelCheckout: "Hotel-Checkout",
+    appName: "CICO", checkOut: "Auschecken", hotelCheckout: "Hotel-Checkout",
     scanInstruction: "Scannen Sie den QR-Code auf der Rueckseite Ihres Schluessels.", scanKey: "Schluessel scannen",
     scanning: "QR wird gescannt", readyTitle: "Bereit zum Auschecken?",
     readyBody: "Bitte stellen Sie sicher, dass das Zimmer leer ist und Sie nichts vergessen haben.",
@@ -81,7 +81,7 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     noRoomsPending: "Keine Zimmer offen.", averageCleaningToday: "Durchschnitt Reinigung heute",
   },
   es: {
-    appName: "HotelApp", checkOut: "Checkout", hotelCheckout: "Checkout del hotel",
+    appName: "CICO", checkOut: "Checkout", hotelCheckout: "Checkout del hotel",
     scanInstruction: "Escanea el codigo QR del reverso de tu llave.", scanKey: "Escanear llave", scanning: "Escaneando QR",
     readyTitle: "Listo para hacer checkout?", readyBody: "Asegurate de que la habitacion este vacia y de no haber olvidado nada.",
     room: "Habitacion", confirmCheckout: "Confirmar checkout", completed: "Checkout completado",
@@ -123,7 +123,7 @@ export function getBrowserLocale(): Locale {
 
 export function getStoredLocale(): Locale {
   const stored = localStorage.getItem(STORAGE_KEY) as Locale | null;
-  return stored && LOCALES.some((locale) => locale.id === stored) ? stored : getBrowserLocale();
+  return stored && LOCALES.some((locale) => locale.id === stored) ? stored : "en";
 }
 
 export function t(locale: Locale, key: TranslationKey) {

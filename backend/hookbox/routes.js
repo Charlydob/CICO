@@ -129,6 +129,7 @@ export async function handleHookboxRoute({
     )
       fail("Request origin not allowed", 403);
     const path = pathname.slice(adminPath.length);
+    if(!session.isPlatformAdmin&&["diagnostics","inherit"].includes(path))fail("Technical configuration requires superadmin",403);
     if (request.method === "GET" && path === "devices")
       payload = await service.devices(tenant);
     else if (request.method === "GET" && /^devices\/[a-f0-9-]{36}$/.test(path))
@@ -150,6 +151,11 @@ export async function handleHookboxRoute({
         request,
         path === "assets" ? 50000 : 12288,
       );
+      if(!session.isPlatformAdmin&&path==="draft"){
+        const current=await service.editor(tenant,body.deviceId);
+        body.mapping=current.hotel.mapping;
+      }
+      if(!session.isPlatformAdmin&&path==="publish"&&body.restoreVersion)fail("Use the visual draft to restore a design",403);
       if (path === "inherit") payload = await service.inherit(tenant, body);
       else if (path === "draft") payload = await service.draft(tenant, body);
       else if (path === "publish")
@@ -157,6 +163,12 @@ export async function handleHookboxRoute({
       else if (path === "assets") payload = await service.upload(tenant, body);
       else fail("Hookbox endpoint not found", 404);
     } else fail("Hookbox endpoint not found", 404);
+    if(!session.isPlatformAdmin){
+      const safeDevice=d=>{const {events,currentFirmwareVersion,currentBuildId,hardwareModel,...safe}=d;return safe;};
+      if(path==="devices")payload=payload.map(safeDevice);else if(path.startsWith("devices/"))payload=safeDevice(payload);
+      if(path==="editor"){payload={...payload,hotel:{...payload.hotel,mapping:[]},devices:payload.devices.map(safeDevice),versions:payload.versions.map(v=>({...v,manifestRaw:undefined,manifest:{theme:v.manifest.theme}}))};}
+      if(path==="draft")payload={...payload,mapping:[]};
+    }
   }
   return send(payload);
 }

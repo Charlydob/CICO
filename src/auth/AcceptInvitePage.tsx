@@ -66,11 +66,12 @@ export function AcceptInvitePage() {
           <div className="invite-summary">
             <span>{invitation.tenantName || invitation.tenantId}</span>
             <strong>{invitation.email}</strong>
-            <span>{invitation.role}</span>
+            <span>{invitation.role==="tenant_admin"?"Hotel owner":invitation.role==="manager"?"Manager":"Staff"}</span>
           </div>
         )}
 
-        {(notice || invitation?.status !== "pending") && (
+        {!notice&&!invitation&&<p role="status">Loading invitation…</p>}
+        {(notice || (invitation&&invitation.status !== "pending")) && (
           <div className="notice error">
             {notice || `This invitation is ${invitation?.status}.`}
           </div>
@@ -81,10 +82,12 @@ export function AcceptInvitePage() {
             <span>Password</span>
             <input
               type="password"
+              required
               autoComplete="new-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
+            <small>Use your CICO password if you already have an account, or choose a new password of at least eight characters.</small>
           </label>
         )}
 

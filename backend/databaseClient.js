@@ -299,10 +299,27 @@ async function createCurrentOccupancyCycle(tx, { tenantId, roomId, reason, metad
   });
 }
 
-export function createDatabaseClient() {
+export function createDatabaseClient(client=prisma) {
+  const prisma=client;
   return {
     prisma,
 
+    async withRoomLock(tenantId,roomId,fn){
+      return this.withRoomLocks(tenantId,[roomId],fn);
+    },
+    async withRoomLocks(tenantId,roomIds,fn){
+      if(!prisma.$transaction)return fn(this);
+      return prisma.$transaction(async tx=>{for(const id of [...new Set(roomIds)].sort())await lockOccupancyCycle(tx,tenantId,id);return fn(createDatabaseClient(tx));},{timeout:20000});
+    },
+    async withInvitationLock(filter,fn){
+      if(filter.id&&!/^[a-f0-9-]{36}$/i.test(filter.id))throw Object.assign(Error("Invitation not found."),{statusCode:404});
+      if(!prisma.$transaction)return fn(this);
+      return prisma.$transaction(async tx=>{
+        if(filter.hash)await tx.$queryRaw`SELECT id FROM invitations WHERE token_hash=${filter.hash} FOR UPDATE`;
+        else await tx.$queryRaw`SELECT id FROM invitations WHERE id=${filter.id}::uuid FOR UPDATE`;
+        return fn(createDatabaseClient(tx));
+      },{timeout:20000});
+    },
     async disconnect() {
       await prisma.$disconnect();
     },
@@ -327,6 +344,7 @@ export function createDatabaseClient() {
     },
 
     async getRecord(collection, id) {
+      if((TENANT_SCOPED.has(collection)||["users","tenants","memberships"].includes(collection))&&!/^[a-f0-9-]{36}$/i.test(String(id)))return undefined;
       const model = modelName(collection);
       const result = await prisma[model].findUnique({
         where: buildWhere(collection, id),
@@ -370,8 +388,9 @@ export function createDatabaseClient() {
     },
 
     async getTenantRecord(collection, tenantId, id) {
-      const record = await this.getRecord(collection, id);
-      return record?.tenantId === tenantId ? record : undefined;
+      if(!TENANT_SCOPED.has(collection)||!tenantId||typeof id!=="string"||!/^[a-f0-9-]{36}$/i.test(id))return undefined;
+      const record=await prisma[modelName(collection)].findFirst({where:{id,tenantId}});
+      return normalizeForRead(record)||undefined;
     },
 
     async getMembershipsForUser(userId) {
@@ -393,7 +412,7 @@ export function createDatabaseClient() {
     },
 
     async ensureCurrentOccupancyCycle(input) {
-      const result = await prisma.$transaction(async (tx) => {
+      const execute=async (tx) => {
         await lockOccupancyCycle(tx, input.tenantId, input.roomId);
 
         const current = await tx.occupancyCycle.findFirst({
@@ -433,8 +452,8 @@ export function createDatabaseClient() {
           cycle: await createCurrentOccupancyCycle(tx, input),
           created: true,
         };
-      });
-
+      };
+      const result=prisma.$transaction?await prisma.$transaction(execute):await execute(prisma);
       return {
         cycle: normalizeForRead(result.cycle),
         created: result.created,
@@ -535,7 +554,7 @@ export function createDatabaseClient() {
               sourceIdentifier: input.sourceIdentifier,
               timestamp,
               status: "registered",
-              metadata: input.metadata || {},
+              metadata: {...(input.metadata||{}),priorRoom:{status:room.status,lastCheckoutAt:room.lastCheckoutAt,lastCheckoutSource:room.lastCheckoutSource,checkoutDueDate:room.checkoutDueDate,checkoutDueSource:room.checkoutDueSource,lastCleanedAt:room.lastCleanedAt}},
             }),
           });
 
@@ -583,7 +602,7 @@ export function createDatabaseClient() {
       };
       const result = transaction
         ? await execute(transaction)
-        : await prisma.$transaction(execute);
+        : prisma.$transaction?await prisma.$transaction(execute):await execute(prisma);
 
       return normalizeForRead(result);
     },

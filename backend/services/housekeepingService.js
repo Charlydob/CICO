@@ -10,7 +10,7 @@ import {
 import { displayNameForMembership } from "./userDisplayService.js";
 
 const PENDING_STATUSES = new Set(["ready_for_cleaning", "cleaning"]);
-const ALLOWED_ACTIONS = new Set(["claim", "bed_done", "cleaning_done", "complete", "assign"]);
+const ALLOWED_ACTIONS = new Set(["claim", "bed_done", "cleaning_done", "complete", "assign", "undo_bed", "undo_cleaning", "reopen", "undo_checkout"]);
 const MEMBER_ROLES = new Set(["tenant_admin", "manager", "staff"]);
 
 function now() {
@@ -52,7 +52,7 @@ function localDate(value, timezone) {
 function latestEventByRoom(events) {
   const byRoom = new Map();
 
-  for (const event of [...events].sort(
+  for (const event of [...events].filter(e=>e.status!=="reversed").sort(
     (left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime(),
   )) {
     if (!byRoom.has(event.roomId)) {
@@ -194,7 +194,7 @@ export async function getHousekeepingBoard(database, tenantId, options = {}) {
   const timezone = tenant.basicInfo?.timezone || "UTC";
   const today = localDate(new Date(), timezone);
   const todayEvents = events.filter((event) => localDate(event.timestamp, timezone) === today);
-  const eventByRoom = latestEventByRoom(todayEvents);
+  const eventByRoom = latestEventByRoom(events);
   const activeRooms = rooms
     .filter((room) => room.active !== false && !room.deletedAt)
     .sort((left, right) => String(left.number).localeCompare(String(right.number)));
@@ -332,7 +332,7 @@ export async function getHousekeepingStaff(database, tenantId, options = {}) {
   return { success: true, tenantId, members };
 }
 
-export async function resolveAssignmentTargetByUserId(database, tenantId, userId) {
+export async function resolveAssignmentTargetByUserId(database, tenantId, userId,allowPlatformAdmin=false) {
   const cleanUserId = cleanString(userId);
   if (!cleanUserId) {
     return undefined;
@@ -345,7 +345,7 @@ export async function resolveAssignmentTargetByUserId(database, tenantId, userId
     throw error;
   }
 
-  if (user.globalRole === "platform_admin") {
+  if (allowPlatformAdmin&&user.globalRole === "platform_admin") {
     return { user, role: "platform_admin" };
   }
 
@@ -363,6 +363,14 @@ export async function resolveAssignmentTargetByUserId(database, tenantId, userId
 }
 
 export async function applyHousekeepingAction(database, input = {}) {
+  if(database.withRoomLock&&!input._locked){
+    const tenant=await getTenant(database,input.tenantId),eventId=await resolveEventId(database,tenant,input);
+    const context=await getEventRoomContext(database,input.tenantId,eventId);
+    const result=await database.withRoomLock(input.tenantId,context.room.id,tx=>applyHousekeepingAction(tx,{...input,eventId,_locked:true}));
+    if(!result.duplicate&&input.action==="complete")void sendRoomCompletedPush(database,{tenant,room:result.room,event:result.event,actorUser:input.actor.user}).catch(()=>{});
+    if(!result.duplicate&&input.action==="assign")void sendAssignmentPush(database,{tenant,room:result.room,event:result.event,assignedUserId:input.assignmentTargetUserId||input.assignedToUserId}).catch(()=>{});
+    return result;
+  }
   const tenant = await getTenant(database, input.tenantId);
   const action = cleanString(input.action || input.type).toLowerCase();
   const actor = input.actor;
@@ -386,6 +394,42 @@ export async function applyHousekeepingAction(database, input = {}) {
   const housekeeping = { ...housekeepingMetadata(event) };
   let assignedUserId = "";
 
+  const manage=canManageHousekeeping(actor.role),error=(message,status=409)=>{throw Object.assign(Error(message),{statusCode:status})};
+  if(event.status==='reversed'&&action!=='undo_checkout')error('This checkout was reversed. Refresh the board before making changes.');
+  if(event.status!=='reversed'){
+    const latest=(await database.listTenantRecords('checkoutEvents',tenant.id)).filter(e=>e.roomId===room.id&&e.status!=='reversed').sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0];
+    if(latest?.id!==event.id)error('A newer checkout exists. Refresh the board before making changes.');
+    if(room.status==='occupied')error('A new stay is active. This checkout can no longer be changed.');
+  }
+  if(action.startsWith('undo_')||action==='reopen'){
+    if(action==='undo_checkout'||action==='reopen'||housekeeping.completedAt){if(!manage)error('Manager access is required for this correction.',403);if(!input.confirmed)error('Confirm this correction before continuing.');}
+    if(!manage&&housekeeping.assignedToUserId&&housekeeping.assignedToUserId!==actor.user.id)error('Room belongs to another employee.',403);
+    const latest=(await database.listTenantRecords('checkoutEvents',tenant.id)).filter(e=>e.roomId===room.id&&e.status!=='reversed').sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp))[0];
+    if(event.status==='reversed')return {success:true,duplicate:true,action,event,room,board:await getHousekeepingBoard(database,tenant.id)};
+    if(latest?.id!==event.id)error('A newer checkout exists; this correction is no longer available.');
+    if(housekeeping.completedAt||action==='undo_checkout'){
+      const cycles=(await database.listTenantRecords('occupancyCycles',tenant.id)).filter(c=>c.roomId===room.id&&!c.consumedAt);
+      if(cycles.some(c=>c.reservationCode||c.guestName))error('A new stay is active. Review the reservation before changing this checkout.');
+      for(const cycle of cycles)await database.setRecord('occupancyCycles',cycle.id,{...cycle,consumedAt:timestamp,metadata:{...cycle.metadata,voidedByCorrection:actor.user.id}});
+      delete housekeeping.completedAt;delete housekeeping.completedByUserId;
+    }
+    if(action==='undo_bed'){delete housekeeping.bedDoneAt;delete housekeeping.bedDoneByUserId;}
+    if(action==='undo_cleaning'){delete housekeeping.cleaningDoneAt;delete housekeeping.cleaningDoneByUserId;}
+    const audit=[...(event.metadata?.audit||[]),{action,actorId:actor.user.id,at:timestamp,reason:cleanString(input.reason)}];
+    if(action==='undo_checkout'){
+      const prior=event.metadata?.priorRoom||{},cycleId=event.occupancyCycleId;
+      if(cycleId){const cycle=await database.getTenantRecord('occupancyCycles',tenant.id,cycleId);if(cycle)await database.setRecord('occupancyCycles',cycleId,{...cycle,consumedAt:null});}
+      const correctedEvent=await database.setRecord('checkoutEvents',event.id,{...event,status:'reversed',occupancyCycleId:null,metadata:{...event.metadata,originalOccupancyCycleId:cycleId,reversedAt:timestamp,reversedBy:actor.user.id,audit}});
+      const correctedRoom=await database.setRecord('rooms',room.id,{...room,status:prior.status||'occupied',lastCheckoutAt:prior.lastCheckoutAt||null,lastCheckoutSource:prior.lastCheckoutSource||null,checkoutDueDate:prior.checkoutDueDate||localDate(event.timestamp,tenant.basicInfo?.timezone),checkoutDueSource:prior.checkoutDueSource||'manual',lastCleanedAt:prior.lastCleanedAt||null,updatedAt:timestamp});
+      return {success:true,action,event:correctedEvent,room:correctedRoom,board:await getHousekeepingBoard(database,tenant.id)};
+    }
+    const correctedEvent=await database.setRecord('checkoutEvents',event.id,{...event,metadata:{...event.metadata,housekeeping,audit}});
+    const correctedRoom=await database.setRecord('rooms',room.id,{...room,status:'cleaning',lastCleanedAt:null,updatedAt:timestamp});
+    return {success:true,action,event:correctedEvent,room:correctedRoom,board:await getHousekeepingBoard(database,tenant.id)};
+  }
+  if(housekeeping.completedAt&&action==='complete')return {success:true,duplicate:true,action,event,room,board:await getHousekeepingBoard(database,tenant.id)};
+  if(housekeeping.completedAt&&['bed_done','cleaning_done'].includes(action))error('Reopen cleaning before changing its completed tasks.');
+
   if (action === "claim") {
     if (
       housekeeping.assignedToUserId &&
@@ -408,6 +452,7 @@ export async function applyHousekeepingAction(database, input = {}) {
       database,
       tenant.id,
       input.assignmentTargetUserId || input.assignedToUserId,
+      actor.role==='platform_admin',
     );
     if (!target) {
       const error = new Error("Assignment target is required.");
@@ -428,23 +473,13 @@ export async function applyHousekeepingAction(database, input = {}) {
       cleaningDoneAt: timestamp,
     });
   } else if (action === "complete") {
-    if (!housekeeping.bedDoneAt) {
-      Object.assign(housekeeping, { bedDoneByUserId: actor.user.id, bedDoneAt: timestamp });
-    }
-    if (!housekeeping.cleaningDoneAt) {
-      Object.assign(housekeeping, {
-        cleaningDoneByUserId: actor.user.id,
-        cleaningDoneAt: timestamp,
-      });
-    }
-    if (!housekeeping.completedAt) {
-      Object.assign(housekeeping, { completedByUserId: actor.user.id, completedAt: timestamp });
-    }
+    if(!housekeeping.bedDoneAt||!housekeeping.cleaningDoneAt)error('Complete both bed and cleaning before confirming the room.');
+    Object.assign(housekeeping,{completedByUserId:actor.user.id,completedAt:timestamp});
   }
 
   const updatedEvent = await database.setRecord("checkoutEvents", event.id, {
     ...event,
-    metadata: { ...(event.metadata || {}), housekeeping },
+    metadata: { ...(event.metadata || {}), housekeeping,audit:[...(event.metadata?.audit||[]),{action,actorId:actor.user.id,at:timestamp}] },
   });
   let updatedRoom = room;
 
@@ -454,7 +489,7 @@ export async function applyHousekeepingAction(database, input = {}) {
 
   if (action === "complete") {
     updatedRoom = await updateRoom(database, tenant.id, room.id, { status: "ready" });
-    void sendRoomCompletedPush(database, {
+    if(!input._locked)void sendRoomCompletedPush(database, {
       tenant,
       room: updatedRoom,
       event: updatedEvent,
@@ -465,7 +500,7 @@ export async function applyHousekeepingAction(database, input = {}) {
     });
   }
 
-  if (action === "assign" && assignedUserId) {
+  if (action === "assign" && assignedUserId && !input._locked) {
     void sendAssignmentPush(database, {
       tenant,
       room: updatedRoom,
@@ -518,6 +553,7 @@ export async function registerManualHousekeepingCheckout(database, input = {}) {
     database,
     tenant.id,
     input.assignmentTargetUserId || input.assignedToUserId,
+    actor.role==='platform_admin',
   );
   const timestamp = now();
   const metadata = {

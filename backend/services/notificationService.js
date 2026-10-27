@@ -306,12 +306,12 @@ export async function getTelegramDiagnostics(database, tenantId) {
   return publicDiagnostics(settings?.notifications?.telegram?.diagnostics);
 }
 
-export async function sendUserInvitationNotification({ invitation, tenant, inviteUrl }) {
-  return {
-    sent: false,
-    skipped: true,
-    invitationId: invitation.id,
-    tenantId: tenant?.id || invitation.tenantId,
-    inviteUrl,
-  };
+export async function sendUserInvitationNotification({invitation,tenant,inviteUrl,transport=fetch,configuration=process.env}){
+  const url=configuration.INVITATION_MAIL_URL,token=configuration.INVITATION_MAIL_TOKEN;
+  if(!url||!token)return {sent:false,status:"not_configured",invitationId:invitation.id};
+  if(!/^https:\/\//.test(url))return {sent:false,status:"failed",invitationId:invitation.id};
+  try{
+    const response=await transport(url,{method:"POST",headers:{"content-type":"application/json",authorization:"Bearer "+token},body:JSON.stringify({schemaVersion:1,event:"user_invited",to:invitation.email,subject:("Invitation to "+(tenant?.name||"your hotel")).replace(/[\r\n]/g," ").slice(0,180),text:"You have been invited to join "+(tenant?.name||"your hotel")+" on CICO. Accept your invitation: "+inviteUrl,inviteUrl,expiresAt:invitation.expiresAt}),signal:AbortSignal.timeout(10000),redirect:"error"});
+    return {sent:response.ok,status:response.ok?"accepted":"failed",invitationId:invitation.id};
+  }catch{return {sent:false,status:"failed",invitationId:invitation.id};}
 }

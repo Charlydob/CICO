@@ -13,7 +13,7 @@ import {
   resolveCheckoutByIdentifier,
   setTodayCheckoutRooms,
   updateKeyIdentifier,
-  updateRoom,
+  updateManagedRoom,
 } from "../services/checkoutService.js";
 import { requireModule, requireTenantAdmin, getTenantRole } from "../services/tenantService.js";
 import { requireHousekeepingPermission } from "../services/housekeepingPermissions.js";
@@ -65,6 +65,7 @@ export async function handleCheckoutRoute({ request, pathname, parsedUrl, body, 
   }
 
   if (request.method === "GET" && pathname === "/api/checkout/keys") {
+    requireTenantAdmin(session,tenantId);
     const keys = await listKeyIdentifiers(database, tenantId);
     return { status: 200, payload: keys };
   }
@@ -79,7 +80,7 @@ export async function handleCheckoutRoute({ request, pathname, parsedUrl, body, 
     }).formatToParts(new Date());
     const part = (type) => parts.find((item) => item.type === type)?.value;
     const date = `${part("year")}-${part("month")}-${part("day")}`;
-    return { status: 200, payload: await setTodayCheckoutRooms(database, tenantId, body.roomIds, date) };
+    return { status: 200, payload: await setTodayCheckoutRooms(database, tenantId, body.roomIds, date,session.user.id) };
   }
 
   if (request.method === "POST" && pathname === "/api/checkout/rooms") {
@@ -104,7 +105,7 @@ export async function handleCheckoutRoute({ request, pathname, parsedUrl, body, 
     requireTenantAdmin(session, tenantId);
     return {
       status: 200,
-      payload: await updateRoom(database, tenantId, decodeURIComponent(roomMatch[1]), body),
+      payload: await updateManagedRoom(database, tenantId, decodeURIComponent(roomMatch[1]), body,session.user.id),
     };
   }
 
@@ -112,7 +113,7 @@ export async function handleCheckoutRoute({ request, pathname, parsedUrl, body, 
     requireTenantAdmin(session, tenantId);
     return {
       status: 200,
-      payload: await archiveRoom(database, tenantId, decodeURIComponent(roomMatch[1])),
+      payload: await archiveRoom(database, tenantId, decodeURIComponent(roomMatch[1]),session.user.id),
     };
   }
 
@@ -164,6 +165,7 @@ export async function handleCheckoutRoute({ request, pathname, parsedUrl, body, 
 
   const keyQrMatch = pathname.match(/^\/api\/checkout\/keys\/([^/]+)\/qr$/);
   if (request.method === "GET" && keyQrMatch) {
+    requireTenantAdmin(session,tenantId);
     const key = await database.getTenantRecord(
       "keyIdentifiers",
       tenantId,

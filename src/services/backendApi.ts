@@ -1069,7 +1069,8 @@ export async function getHousekeepingStaff(): Promise<{ members: HousekeepingSta
 }
 
 export async function performHousekeepingAction(input: {
-  action: "claim" | "bed_done" | "cleaning_done" | "complete" | "assign";
+  action: "claim" | "bed_done" | "cleaning_done" | "complete" | "assign" | "undo_bed" | "undo_cleaning" | "reopen" | "undo_checkout";
+  confirmed?:boolean;reason?:string;
   eventId: string;
   assignmentTargetUserId?: string;
 }): Promise<{ board: HousekeepingBoard }> {
@@ -1484,3 +1485,5 @@ export async function hookboxAsset(id:string):Promise<{bytes:ArrayBuffer;width:n
  if(!r.ok) throw Error('No se pudo descargar el recurso');
  return {bytes:await r.arrayBuffer(),width:Number(r.headers.get('X-Asset-Width')),height:Number(r.headers.get('X-Asset-Height'))};
 }
+
+export function hotelPaymentRequest(method:string,body?:unknown):Promise<any>{return requestJson('/api/tenant/payments',{method,...(body?{body:JSON.stringify(body)}:{})});}

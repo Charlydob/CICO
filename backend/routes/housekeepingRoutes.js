@@ -31,7 +31,7 @@ export async function handleHousekeepingRoute({ request, pathname, body, context
   if (request.method === "GET" && pathname === "/api/housekeeping/staff") {
     return {
       status: 200,
-      payload: await getHousekeepingStaff(database, tenantId, { includePlatformAdmins: true }),
+      payload: await getHousekeepingStaff(database, tenantId, { includePlatformAdmins: session.isPlatformAdmin }),
     };
   }
 
@@ -41,7 +41,7 @@ export async function handleHousekeepingRoute({ request, pathname, body, context
       payload: await applyHousekeepingAction(database, {
         tenantId,
         actor,
-        action: body.action,
+        action: body.action,confirmed:body.confirmed===true,reason:body.reason,
         eventId: body.eventId,
         roomNumber: body.roomNumber,
         assignmentTargetUserId: body.assignmentTargetUserId || body.assignedToUserId,

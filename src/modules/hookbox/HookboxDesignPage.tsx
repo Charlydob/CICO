@@ -39,26 +39,26 @@ type Editor = {
   }[];
 };
 const textLabels: Record<string, string> = {
-  welcome: "Bienvenida",
-  subtitle: "Subtítulo",
-  id: "Etiqueta de Check-in ID",
-  surname: "Etiqueta de apellido",
-  placeholderId: "Ejemplo del identificador",
-  placeholderSurname: "Ejemplo del apellido",
-  search: "Botón de búsqueda",
-  verify: "Botón de verificación",
-  verificationHelp: "Instrucciones de verificación",
-  confirm: "Confirmar entrega",
-  searching: "Buscando reserva",
-  error: "Mensaje de error",
-  room: "Habitación",
-  delivery: "Entrega en curso",
-  done: "Entrega terminada",
-  home: "Volver al inicio",
-  qrHelp: "Texto bajo el QR",
-  space: "Teclado: espacio",
-  shift: "Teclado: mayúsculas",
-  delete: "Teclado: borrar",
+  welcome: "Welcome text",
+  subtitle: "Subtitle",
+  id: "Check-in ID label",
+  surname: "Surname label",
+  placeholderId: "ID placeholder",
+  placeholderSurname: "Surname placeholder",
+  search: "Search button",
+  verify: "Verification button",
+  verificationHelp: "Verification instructions",
+  confirm: "Delivery confirmation",
+  searching: "Searching state",
+  error: "Error message",
+  room: "Room",
+  delivery: "Delivery in progress",
+  done: "Delivery finished",
+  home: "Return home",
+  qrHelp: "QR caption",
+  space: "Keyboard: space",
+  shift: "Keyboard: shift",
+  delete: "Keyboard: delete",
 };
 const keys = G.rows;
 async function rgbUrl(a: {
@@ -87,10 +87,10 @@ async function rgbUrl(a: {
   ctx.putImageData(im, 0, 0);
   return c.toDataURL();
 }
-export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
+export function HookboxDesignPage({ deviceId,showTechnical=false }: { deviceId?: string;showTechnical?:boolean } = {}) {
   const [contentKey, setContentKey] = useState("welcome");
   const [mode, setMode] = useState<"preview" | "edit">("preview"),
-    [category, setCategory] = useState("Contenido"),
+    [category, setCategory] = useState("Content"),
     [selection, setSelection] = useState<{
       key?: string;
       color: string;
@@ -209,11 +209,11 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
       !["image/png", "image/jpeg"].includes(file.type) ||
       file.size > 4 * 1024 * 1024
     )
-      throw Error("Carga PNG/JPG de hasta 4 MB; SVG no está soportado");
+      throw Error("Upload a PNG or JPG up to 4 MB. SVG is not supported.");
     const bitmap = await createImageBitmap(file);
     if (bitmap.width * bitmap.height > 16000000) {
       bitmap.close();
-      throw Error("Imagen demasiado grande");
+      throw Error("Image is too large.");
     }
     const ratio = Math.min(
         1,
@@ -306,7 +306,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
       y = ((e.clientY - r.top) * 480) / r.height;
     if (mode === "edit") {
       let hit: { key?: string; color: string; label: string; rect: number[] } =
-        { color: "background", label: "Fondo", rect: [0, 0, 800, 480] };
+        { color: "background", label: "Background", rect: [0, 0, 800, 480] };
       if (y >= 16 && y <= 72 && x < 548)
         hit =
           x < 100 && theme.logo
@@ -314,14 +314,14 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
             : {
                 key: "hotelName",
                 color: "primary",
-                label: "Nombre del hotel",
+                label: "Hotel name",
                 rect: [theme.logo ? 112 : 24, 25, 436, 42],
               };
       else if (y >= 100 && y < 150 && x < 540)
         hit = {
           key: "welcome",
           color: "primary",
-          label: "Bienvenida",
+          label: "Welcome text",
           rect: [24, 100, 500, 48],
         };
       else if (screen === "home") {
@@ -329,7 +329,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
           hit = {
             key: "subtitle",
             color: "secondary",
-            label: "Subtítulo",
+            label: "Subtitle",
             rect: [24, 153, 500, 28],
           };
         else if (x >= 548 && y >= 204 && y < 444) {
@@ -338,7 +338,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               ? {
                   key: "qrHelp",
                   color: "secondary",
-                  label: "Texto del QR",
+                  label: "QR caption",
                   rect: [564, 424, 196, 18],
                 }
               : {
@@ -346,7 +346,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                   label: "Código QR",
                   rect: [548, 204, 228, 240],
                 };
-          setCategory("QR y branding");
+          setCategory("QR & branding");
         } else if (x >= 24 && x <= 524 && y >= 204 && y <= 444) {
           const second = y >= 332,
             top = second ? 332 : 204;
@@ -362,7 +362,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                 ? {
                     key: "search",
                     color: "buttonText",
-                    label: "Botón de búsqueda",
+                    label: "Search button",
                     rect: [332, top + 46, 172, 48],
                   }
                 : y >= top + 46 && y <= top + 94
@@ -388,7 +388,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                   ? "id"
                   : "surname",
             color: screen === "verify" ? "secondary" : "buttonText",
-            label: "Texto del formulario",
+            label: "Text del formulario",
             rect: [24, 152, 752, 44],
           };
         else if (y >= 204 && y <= 252)
@@ -397,7 +397,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               ? {
                   key: screen === "verify" ? "verify" : "search",
                   color: "buttonText",
-                  label: "Botón de búsqueda",
+                  label: "Search button",
                   rect: [548, 204, 228, 48],
                 }
               : {
@@ -459,7 +459,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
             y < 232 && ["authorized", "delivery", "done"].includes(screen)
               ? "primary"
               : "text",
-          label: "Texto de la pantalla",
+          label: "Screen text",
           rect: [48, y < 232 ? 194 : 252, 704, 40],
         };
       }
@@ -530,8 +530,8 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
   if (!data)
     return (
       <section>
-        <h1>Hookbox · Diseño de pantalla</h1>
-        <p>{message || "Cargando…"}</p>
+        <h1>HOOKBOX display design</h1>
+        <p>{message || "Loading…"}</p>
       </section>
     );
   let validation = "";
@@ -544,19 +544,19 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
     <section className="hb-editor">
       {deviceId && (
         <a href={window.location.pathname.replace(/\/screen\/?$/, "")}>
-          Volver al dispositivo
+          Back to device
         </a>
       )}
-      <h1>Personalizar pantalla</h1>
-      <p>Vista previa de la pantalla instalada · 800 × 480</p>
+      <h1>Customize display</h1>
+      <p>Installed display preview · 800 × 480</p>
       <p>
-        Hotel seleccionado en CICO. Publicación remota independiente del
+        Selected hotel in CICO. Display publishing is independent of
         firmware.
       </p>
       <label>
-        Configuración de pantalla
+        Display configuration
         <select
-          aria-label="Configuración de pantalla"
+          aria-label="Display configuration"
           value={selectedDevice}
           disabled={busy || !!deviceId}
           onChange={(e) => {
@@ -567,7 +567,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
             void run(() => load(id));
           }}
         >
-          <option value="">Diseño general del hotel</option>
+          <option value="">Hotel default design</option>
           {data.devices.map((d) => (
             <option key={d.id} value={d.id}>
               {d.name}
@@ -583,7 +583,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               void run(async () => {
                 const response = await fetch("/hookbox/steinbock-logo.png");
                 if (!response.ok)
-                  throw Error("Logotipo de referencia no disponible");
+                  throw Error("Reference logo unavailable");
                 const logo = await upload(
                   new File([await response.blob()], "steinbock.png", {
                     type: "image/png",
@@ -596,12 +596,12 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                   "https://checkin.gasthaus-steinbock.ch/guest-login.php?lang=de";
                 setTheme(preset);
                 setMessage(
-                  "Identidad Steinbock cargada como borrador; revisa y publica para aplicarla",
+                  "Steinbock branding loaded as a draft; review and publish to apply",
                 );
               })
             }
           >
-            Aplicar identidad Steinbock
+            Apply Steinbock branding
           </button>
         )}
         <button
@@ -609,14 +609,14 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
           onClick={() =>
             void run(async () => {
               await save();
-              setMessage("Borrador guardado");
+              setMessage("Draft saved");
             })
           }
         >
-          Guardar borrador
+          Save draft
         </button>
         <button disabled={busy} onClick={() => void run(() => load())}>
-          Restaurar cambios
+          Reload saved draft
         </button>
         <button
           disabled={busy || !!validation}
@@ -629,15 +629,15 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               });
               await load();
               setMessage(
-                "Diseño publicado; esperando confirmación de los dispositivos",
+                "Design published; waiting for device confirmation",
               );
             })
           }
         >
-          Publicar diseño
+          Publish design
         </button>
       </div>
-      {selectedDevice && (
+      {selectedDevice && showTechnical && (
         <button
           disabled={busy}
           onClick={() =>
@@ -645,12 +645,12 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               await hookboxRequest("inherit", { deviceId: selectedDevice });
               await load();
               setMessage(
-                "La pantalla vuelve a seguir el diseño general del hotel",
+                "Display now follows the hotel default design",
               );
             })
           }
         >
-          Usar diseño general del hotel
+          Use hotel default design
         </button>
       )}
       <button
@@ -660,14 +660,14 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
           setTheme(restored);
           setLang(restored.defaultLanguage);
           setMessage(
-            "Plantilla predeterminada restaurada como borrador; publica para aplicarla",
+            "Default template restored as a draft; publish to apply",
           );
         }}
       >
-        Restaurar plantilla predeterminada
+        Restore default template
       </button>
-      <p role="status">{validation || message}</p>
-      <div className="hb-actions" role="group" aria-label="Modo del editor">
+      {(validation||message)&&<p role="status">{validation || message}</p>}
+      <div className="hb-actions" role="group" aria-label="Editor mode">
         <button
           aria-pressed={mode === "preview"}
           onClick={() => {
@@ -675,29 +675,29 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
             setSelection(undefined);
           }}
         >
-          Vista previa
+          Preview
         </button>
         <button aria-pressed={mode === "edit"} onClick={() => setMode("edit")}>
-          Editar
+          Edit
         </button>
         <span>
           {mode === "edit"
-            ? "Selecciona un elemento de la pantalla para modificarlo"
-            : "Prueba la navegación sin cambiar el diseño"}
+            ? "Select an element on the display to edit it"
+            : "Try the flow without changing the design"}
         </span>
       </div>
       <div
         className="hb-category-tabs"
         role="tablist"
-        aria-label="Ajustes de pantalla"
+        aria-label="Display settings"
       >
         {[
-          "Contenido",
-          "Colores",
-          "Tipografía",
-          "Distribución",
-          "Pantallas",
-          "QR y branding",
+          "Content",
+          "Colors",
+          "Typography",
+          "Layout",
+          "Screens",
+          "QR & branding",
         ].map((c) => (
           <button
             key={c}
@@ -712,11 +712,11 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
       <div className="hb-grid">
         <div className="hb-fields">
           {mode === "edit" && selection && (
-            <section className="hb-context" aria-label="Elemento seleccionado">
+            <section className="hb-context" aria-label="Selected element">
               <strong>{selection.label}</strong>
               {selection.key && (
                 <label>
-                  Texto seleccionado
+                  Selected text
                   <input
                     value={
                       selection.key === "hotelName"
@@ -740,7 +740,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                 </label>
               )}
               <label>
-                Color del elemento
+                Element color
                 <input
                   type="color"
                   value={theme.colors[selection.color]}
@@ -755,17 +755,17 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                 />
               </label>
               <small>
-                El color se comparte con los elementos del mismo estilo.
+                This color is shared by elements using the same style.
               </small>
             </section>
           )}
           <fieldset
             disabled={mode !== "edit"}
-            hidden={category !== "Contenido"}
+            hidden={category !== "Content"}
           >
-            <legend>Contenido</legend>
+            <legend>Content</legend>
             <label>
-              Nombre del hotel
+              Hotel name
               <input
                 maxLength={32}
                 value={theme.hotelName}
@@ -775,34 +775,34 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
           </fieldset>
           <fieldset
             disabled={mode !== "edit"}
-            hidden={category !== "Distribución"}
+            hidden={category !== "Layout"}
           >
-            <legend>Distribución segura</legend>
+            <legend>Safe layout</legend>
             <p>
               800 × 480 del CrowPanel instalado. Posiciones y márgenes fijados
               por el firmware; arrastre todavía no disponible.
             </p>
             <label>
-              Plantilla
+              Template
               <select
                 value={theme.template}
                 onChange={(e) => update({ template: e.target.value })}
               >
-                <option value="guest-portal">Portal de huéspedes</option>
+                <option value="guest-portal">Guest portal</option>
               </select>
             </label>
           </fieldset>
           <fieldset
             disabled={mode !== "edit"}
-            hidden={category !== "Tipografía"}
+            hidden={category !== "Typography"}
           >
-            <legend>Tipografía compatible</legend>
+            <legend>Supported typography</legend>
             <p>
-              Los tamaños y la alineación individuales requieren una nueva
-              versión del contrato y firmware; no se simulan en la vista previa.
+              Individual text sizes and alignment are coming soon. The preview
+              uses the sizes supported by your display.
             </p>
             <label>
-              Tipografía
+              Typography
               <select
                 value={theme.font}
                 onChange={(e) => update({ font: e.target.value })}
@@ -811,20 +811,20 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               </select>
             </label>
           </fieldset>
-          <fieldset disabled={mode !== "edit"} hidden={category !== "Colores"}>
-            <legend>Colores</legend>
+          <fieldset disabled={mode !== "edit"} hidden={category !== "Colors"}>
+            <legend>Colors</legend>
             {Object.entries(theme.colors).map(([key, val]) => (
               <label key={key}>
                 {{
-                  text: "Texto",
-                  primary: "Botones y acentos",
-                  surface: "Tarjetas",
-                  background: "Fondo",
-                  buttonText: "Texto de botones",
-                  secondary: "Subtítulos",
-                  inputBackground: "Fondo de campos",
-                  inputText: "Texto de campos",
-                  inputBorder: "Borde de campos",
+                  text: "Text",
+                  primary: "Buttons & accents",
+                  surface: "Cards",
+                  background: "Background",
+                  buttonText: "Button text",
+                  secondary: "Subtitles",
+                  inputBackground: "Input background",
+                  inputText: "Input text",
+                  inputBorder: "Input border",
                 }[key] || key}
                 <input
                   type="color"
@@ -840,14 +840,14 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
           </fieldset>
           <fieldset
             disabled={mode !== "edit"}
-            hidden={category !== "QR y branding"}
+            hidden={category !== "QR & branding"}
           >
-            <legend>QR y branding</legend>
+            <legend>QR & branding</legend>
             {(["logo", "background"] as const).map((kind) => (
               <label key={kind}>
                 {kind === "logo"
-                  ? "Logotipo (máx. 160 × 64)"
-                  : "Decoración (máx. 160 × 96)"}
+                  ? "Logo (max. 160 × 64)"
+                  : "Decoration (max. 160 × 96)"}
                 <input
                   type="file"
                   accept="image/png,image/jpeg"
@@ -856,7 +856,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                     if (f) void run(() => upload(f, kind));
                   }}
                 />
-                <button onClick={() => update({ [kind]: null })}>Quitar</button>
+                <button onClick={() => update({ [kind]: null })}>Remove</button>
               </label>
             ))}
             <label>
@@ -867,10 +867,10 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                   update({ qr: { ...theme.qr, enabled: e.target.checked } })
                 }
               />
-              Mostrar QR
+              Show QR
             </label>
             <label>
-              URL o contenido QR
+              QR URL or content
               <input
                 value={theme.qr.data}
                 onChange={(e) =>
@@ -879,7 +879,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               />
             </label>
             <label>
-              Tamaño QR
+              QR size
               <select
                 value={theme.qr.size}
                 onChange={(e) =>
@@ -894,11 +894,11 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
           </fieldset>
           <fieldset
             disabled={mode !== "edit"}
-            hidden={category !== "Contenido"}
+            hidden={category !== "Content"}
           >
-            <legend>Idiomas y traducciones</legend>
+            <legend>Languages & translations</legend>
             <label>
-              Idioma inicial
+              Default guest language
               <select
                 value={theme.defaultLanguage}
                 onChange={(e) => update({ defaultLanguage: e.target.value })}
@@ -911,17 +911,16 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
           </fieldset>
           <fieldset
             disabled={mode !== "edit"}
-            hidden={category !== "Pantallas"}
+            hidden={category !== "Screens"}
           >
-            <legend>Pantallas actuales</legend>
+            <legend>Current screens</legend>
             <p>
-              Inicio → Identificación → Búsqueda → Verificación → Habitación →
-              Entrega. La vista previa simula las transiciones; el dispositivo
-              usa peticiones reales. La selección de etapas opcionales aún no
-              está disponible.
+              Home → Identification → Search → Verification → Room → Delivery.
+              Optional step ordering is coming soon. Reservation authorization
+              is required before a key can be delivered.
             </p>
             <label>
-              Espera (ms)
+              Session timeout (ms)
               <input
                 type="number"
                 min={15000}
@@ -931,7 +930,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               />
             </label>
             <label>
-              Retorno (ms)
+              Return delay (ms)
               <input
                 type="number"
                 min={3000}
@@ -943,13 +942,13 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
           </fieldset>
           <fieldset
             disabled={mode !== "edit"}
-            hidden={category !== "Contenido"}
+            hidden={category !== "Content"}
           >
-            <legend>Textos públicos</legend>
+            <legend>Public text</legend>
             <details open>
-              <summary>Textos y traducciones · {lang}</summary>
+              <summary>Text & translations · {lang}</summary>
               <label>
-                Elemento de texto
+                Text element
                 <select
                   value={contentKey}
                   onChange={(e) => setContentKey(e.target.value)}
@@ -962,7 +961,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                 </select>
               </label>
               <label>
-                Contenido
+                Content
                 <input
                   value={texts[contentKey]}
                   onChange={(e) =>
@@ -977,22 +976,22 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               </label>
             </details>
           </fieldset>
-          <details>
-            <summary>Ajustes técnicos y asignación de habitaciones</summary>
+          {showTechnical&&<details>
+            <summary>Technical settings and room mapping</summary>
             <label>
-              Habitación:gancho · un par por línea
+              Room:hook · one pair per line
               <textarea
                 rows={6}
                 value={mapping}
                 onChange={(e) => setMapping(e.target.value)}
               />
             </label>
-          </details>
+          </details>}
         </div>
         <div className="hb-stage">
           <div className="hb-actions">
             <select
-              aria-label="Idioma de vista previa"
+              aria-label="Preview language"
               value={lang}
               onChange={(e) => setLang(e.target.value)}
             >
@@ -1020,13 +1019,13 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               >
                 {
                   {
-                    home: "Inicio",
-                    form: "Identificación y teclado",
-                    waiting: "Búsqueda",
-                    verify: "Verificación",
-                    authorized: "Habitación",
-                    delivery: "Entrega",
-                    done: "Final",
+                    home: "Home",
+                    form: "Identification & keyboard",
+                    waiting: "Search",
+                    verify: "Verification",
+                    authorized: "Room",
+                    delivery: "Delivery",
+                    done: "Done",
                     error: "Error",
                   }[s]
                 }
@@ -1043,7 +1042,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
               onPointerUp={stopHold}
               onPointerCancel={stopHold}
               onPointerLeave={stopHold}
-              aria-label="Vista previa interactiva CrowPanel 800 por 480"
+              aria-label="Interactive CrowPanel 800 by 480 preview"
             />
             {mode === "edit" && selection && (
               <div
@@ -1059,15 +1058,13 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
             )}
           </div>
           <p>
-            Vista previa interactiva: no consulta reservas ni acciona llaves.
-            Posiciones a 800 × 480. Fuente y anchos derivados del firmware. El
-            antialiasing y la codificación del QR pueden variar respecto a LVGL;
-            validar el aspecto final en el panel. SVG y fondos a pantalla
-            completa no admitidos por el presupuesto de memoria.
+            Interactive preview at 800 × 480. Try the flow without accessing
+            reservations or delivering keys. Confirm the final appearance on
+            your display after publishing. Upload PNG or JPG images.
           </p>
           <details>
-            <summary>Versiones publicadas y diagnóstico</summary>
-            <h2>Versiones</h2>
+            <summary>Published versions</summary>
+            <h2>Versions</h2>
             {data.versions.map((v) => (
               <div key={v.id} className="hb-version">
                 <span>
@@ -1088,11 +1085,11 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                     );
                   }}
                 >
-                  Revisar / restaurar
+                  Review / restore
                 </button>
               </div>
             ))}
-            <h2>Diagnóstico JSON</h2>
+            {showTechnical&&<><h2>JSON diagnostics</h2>
             <button
               disabled={busy}
               onClick={() =>
@@ -1108,7 +1105,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                 )
               }
             >
-              Actualizar mensajes
+              Refresh diagnostics
             </button>
             <p>
               Últimos 50 intercambios. Credenciales, apellidos, reservas y
@@ -1125,7 +1122,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                 <pre>{JSON.stringify(t.response, null, 2)}</pre>
               </details>
             ))}
-            <h2>Aplicación por dispositivo</h2>
+            </>}<h2>Display application status</h2>
             {data.devices.map((d) => (
               <article key={d.id}>
                 <strong>{d.name}</strong>
@@ -1137,7 +1134,7 @@ export function HookboxDesignPage({ deviceId }: { deviceId?: string } = {}) {
                   {d.uiRejectedReason}
                 </p>
                 <details>
-                  <summary>Eventos recientes</summary>
+                  <summary>Recent events</summary>
                   {d.events?.map((event) => (
                     <p key={event.id}>
                       <strong>

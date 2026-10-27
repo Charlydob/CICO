@@ -28,14 +28,14 @@ const ACTIVE = [
   "HEALTH_CHECK",
 ];
 function age(value: string | null) {
-  if (!value) return "Nunca";
+  if (!value) return "Never";
   const seconds = Math.max(
     0,
     Math.floor((Date.now() - new Date(value).getTime()) / 1000),
   );
   return seconds < 60
-    ? `Hace ${seconds} s`
-    : `Hace ${Math.floor(seconds / 60)} min`;
+    ? `${seconds} s ago`
+    : `${Math.floor(seconds / 60)} min ago`;
 }
 function updateLabel(update?: OtaUpdate | null) {
   return update
@@ -176,11 +176,11 @@ export function DevicesFirmwarePage() {
     <section className="module-page ota-page">
       {!selected&&<><div className="module-title">
         <div>
-          <h1>Dispositivos / Firmware</h1>
-          <p>Administración de plataforma · actualizaciones remotas</p>
+          <h1>Devices / Firmware</h1>
+          <p>Platform management · Remote updates</p>
         </div>
-        <button disabled={busy} onClick={() => void run(reload, "Datos actualizados.")}>
-          Actualizar
+        <button disabled={busy} onClick={() => void run(reload, "Data refreshed.")}>
+          Update
         </button>
       </div>
       <div className="ota-tabs">
@@ -188,13 +188,13 @@ export function DevicesFirmwarePage() {
           className={tab === "devices" ? "active" : ""}
           onClick={() => setTab("devices")}
         >
-          Dispositivos
+          Devices
         </button>
         <button
           className={tab === "releases" ? "active" : ""}
           onClick={() => setTab("releases")}
         >
-          Releases de firmware
+          Firmware releases
         </button>
       </div></>}
       {notice && (
@@ -216,23 +216,23 @@ export function DevicesFirmwarePage() {
             <table className="ota-table device-list-table">
               <thead>
                 <tr>
-                  <th>Dispositivo</th>
-                  <th>Estado / Hardware</th>
-                  <th>Firmware / Objetivo</th>
-                  <th>Última conexión</th>
-                  <th>Actualización</th>
-                  <th>Acciones</th>
+                  <th>Device</th>
+                  <th>Status / Hardware</th>
+                  <th>Firmware / Target</th>
+                  <th>Last connection</th>
+                  <th>Update</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {devices.map((device) => (
                   <tr key={device.id}>
-                    <td data-label="Dispositivo">
+                    <td data-label="Device">
                       <strong>{device.name}</strong>
                       <br />
                       {device.deviceId}
                     </td>
-                    <td data-label="Estado y hardware">
+                    <td data-label="Status and hardware">
                       {device.status}
                       <br />
                       {device.hardwareModel}
@@ -240,16 +240,16 @@ export function DevicesFirmwarePage() {
                     <td data-label="Firmware">
                       {device.currentFirmwareVersion || "—"}
                       <br />
-                      Objetivo {device.targetFirmwareVersion || "—"}
+                      Target {device.targetFirmwareVersion || "—"}
                     </td>
-                    <td data-label="Última conexión">{age(device.lastSeenAt)}</td>
-                    <td data-label="Actualización">
+                    <td data-label="Last connection">{age(device.lastSeenAt)}</td>
+                    <td data-label="Update">
                       {updateLabel(device.latestUpdate)}
                       {device.latestUpdate?.stalled && (
-                        <p>Esperando confirmación del dispositivo</p>
+                        <p>Waiting for device confirmation</p>
                       )}
                     </td>
-                    <td data-label="Acciones">
+                    <td data-label="Actions">
                       <button
                         disabled={busy}
                         onClick={() =>
@@ -259,7 +259,7 @@ export function DevicesFirmwarePage() {
                           )
                         }
                       >
-                        Detalles
+                        Details
                       </button>{" "}
                       <button
                         disabled={
@@ -273,14 +273,14 @@ export function DevicesFirmwarePage() {
                           setReleaseId("");
                         }}
                       >
-                        Actualizar
+                        Update
                       </button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {!devices.length && <p>No hay dispositivos registrados.</p>}
+            {!devices.length && <p>No devices registered.</p>}
           </div>
           <form
             className="panel settings-form ota-form"
@@ -292,12 +292,12 @@ export function DevicesFirmwarePage() {
                   tenantId: newDevice.tenantId || null,
                 });
                 setNewDevice({ ...newDevice, deviceId: "" });
-              }, "Dispositivo registrado. Provisiona su credencial individual en el servidor.");
+              }, "Device registrado. Provisiona su credencial individual en el servidor.");
             }}
           >
-            <h2>Registrar dispositivo</h2>
+            <h2>Register device</h2>
             <label>
-              Nombre
+              Name
               <input
                 required
                 value={newDevice.name}
@@ -338,7 +338,7 @@ export function DevicesFirmwarePage() {
                   setNewDevice({ ...newDevice, tenantId: e.target.value })
                 }
               >
-                <option value="">Sin asignar / Laboratorio</option>
+                <option value="">Unassigned / Lab</option>
                 {session.tenants.map((tenant) => (
                   <option key={tenant.id} value={tenant.id}>
                     {tenant.name}
@@ -347,7 +347,7 @@ export function DevicesFirmwarePage() {
               </select>
             </label>
             <button className="primary-button" disabled={busy}>
-              Registrar
+              Register
             </button>
           </form>
         </>
@@ -357,10 +357,10 @@ export function DevicesFirmwarePage() {
             className="panel settings-form ota-form"
             onSubmit={(event) => void publish(event)}
           >
-            <h2>Subir firmware</h2>
-            <p>Solo imagen de aplicación firmware.bin · partición OTA 1792 KiB</p>
+            <h2>Upload firmware</h2>
+            <p>Application image firmware.bin only · OTA partition 1792 KiB</p>
             <label>
-              Versión
+              Version
               <input
                 required
                 pattern="[0-9]+\.[0-9]+\.[0-9]+"
@@ -396,7 +396,7 @@ export function DevicesFirmwarePage() {
               </select>
             </label>
             <label>
-              Notas de la release
+              Release notes
               <textarea
                 maxLength={8000}
                 value={metadata.releaseNotes}
@@ -416,20 +416,20 @@ export function DevicesFirmwarePage() {
               />
             </label>
             <div className="ota-tabs"><button name="status" value="DRAFT" disabled={busy || !file}>
-              {busy ? "Guardando…" : "Guardar borrador"}
+              {busy ? "Saving…" : "Save draft"}
             </button><button name="status" value="PUBLISHED" className="primary-button" disabled={busy || !file}>
-              {busy ? "Subiendo…" : "Publicar release"}
+              {busy ? "Uploading…" : "Publish release"}
             </button></div>
           </form>
           <div className="panel ota-table-scroll">
             <table className="ota-table">
               <thead>
                 <tr>
-                  <th>Versión / Build</th>
-                  <th>Hardware / Tamaño</th>
+                  <th>Version / Build</th>
+                  <th>Hardware / Size</th>
                   <th>SHA-256</th>
-                  <th>Creada / Notas</th>
-                  <th>Acciones</th>
+                  <th>Created / Notes</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -459,38 +459,38 @@ export function DevicesFirmwarePage() {
                         onClick={() => {
                           setTab("devices");
                           setNotice(
-                            `Selecciona un dispositivo ${release.hardwareModel} y pulsa Actualizar.`,
+                            `Selecciona un dispositivo ${release.hardwareModel} y pulsa Update.`,
                           );
                         }}
                       >
-                        Asignar / actualizar dispositivo
-                      </button>} {release.status==="DRAFT"&&<button disabled={busy} onClick={()=>window.confirm(`¿Publicar ${release.version} / ${release.buildId}?`)&&void run(()=>publishFirmwareRelease(release.id),"Release publicada; aún no asignada a ningún dispositivo.")}>Publicar</button>} {" "}
+                        Assign / update device
+                      </button>} {release.status==="DRAFT"&&<button disabled={busy} onClick={()=>window.confirm(`¿Publish ${release.version} / ${release.buildId}?`)&&void run(()=>publishFirmwareRelease(release.id),"Release publicada; aún no asignada a ningún dispositivo.")}>Publish</button>} {" "}
                       <button
                         disabled={busy}
                         onClick={() =>
                           void run(
                             () => downloadFirmwareRelease(release.id),
-                            "Firmware descargado.",
+                            "Firmware downloaded.",
                           )
                         }
                       >
-                        Descargar
+                        Download
                       </button>{" "}
                       <button
                         disabled={busy}
                         onClick={() => {
                           if (
                             window.confirm(
-                              `¿Eliminar la release sin uso ${release.version} / ${release.buildId}?`,
+                              `¿Delete la release sin uso ${release.version} / ${release.buildId}?`,
                             )
                           )
                             void run(
                               () => deleteFirmwareRelease(release.id),
-                              "Release eliminada.",
+                              "Release deleted.",
                             );
                         }}
                       >
-                        Eliminar
+                        Delete
                       </button>
                     </td>
                   </tr>
@@ -506,37 +506,37 @@ export function DevicesFirmwarePage() {
             className="ota-modal ota-form"
             role="dialog"
             aria-modal="true"
-            aria-label="Iniciar actualización de firmware"
+            aria-label="Start firmware update"
             onSubmit={(event) => {
               event.preventDefault();
               if (
                 !releaseId ||
                 !window.confirm(
-                  `¿INICIAR ACTUALIZACIÓN en ${updateDevice.name}? El dispositivo se reiniciará tras verificarla.`,
+                  `¿START UPDATE en ${updateDevice.name}? El dispositivo se reiniciará tras verificarla.`,
                 )
               )
                 return;
               void run(async () => {
                 await startDeviceUpdate(updateDevice.id, releaseId);
                 setUpdateDevice(null);
-              }, "Actualización pendiente. Esperando la siguiente consulta del dispositivo.");
+              }, "Update pendiente. Esperando la siguiente consulta del dispositivo.");
             }}
           >
-            <h2>Actualizar {updateDevice.name}</h2>
+            <h2>Update {updateDevice.name}</h2>
             <p>
-              Actual: {updateDevice.currentFirmwareVersion} ·{" "}
+              Current: {updateDevice.currentFirmwareVersion} ·{" "}
               {updateDevice.currentBuildId}
               <br />
               Hardware: {updateDevice.hardwareModel}
             </p>
             <label>
-              Release compatible
+              Compatible release
               <select
                 required
                 value={releaseId}
                 onChange={(e) => setReleaseId(e.target.value)}
               >
-                <option value="">Selecciona una release más reciente</option>
+                <option value="">Select a newer release</option>
                 {compatible.map((release) => (
                   <option key={release.id} value={release.id}>
                     {release.version} · {release.buildId}
@@ -545,11 +545,11 @@ export function DevicesFirmwarePage() {
               </select>
             </label>
             {!compatible.length && (
-              <p>Sube primero una release compatible más reciente.</p>
+              <p>Upload a newer compatible release first.</p>
             )}
             <p>
-              El dispositivo descarga, verifica y se reinicia. La finalización
-              exige la confirmación de su comprobación de salud.
+              The device downloads, verifies and restarts. Completion requires
+              confirmation of its health check.
             </p>
             <div className="ota-tabs">
               <button
@@ -557,10 +557,10 @@ export function DevicesFirmwarePage() {
                 disabled={busy}
                 onClick={() => setUpdateDevice(null)}
               >
-                Cancelar
+                Cancel
               </button>
               <button className="primary-button" disabled={busy || !releaseId}>
-                INICIAR ACTUALIZACIÓN
+                START UPDATE
               </button>
             </div>
           </form>

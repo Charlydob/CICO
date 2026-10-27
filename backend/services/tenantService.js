@@ -200,12 +200,12 @@ export async function getAuthSession(database, authUser, selectedTenantId) {
           memberships.map((membership) => database.getRecord("tenants", membership.tenantId)),
         ),
   );
-  const activeTenants = tenants.filter((tenant) => tenant?.active !== false);
+  const activeTenants = tenants.filter((tenant) => tenant && tenant.active !== false);
   let activeTenantId = cleanString(selectedTenantId);
 
   if (activeTenantId) {
     const allowed =
-      isPlatformAdmin || memberships.some((membership) => membership.tenantId === activeTenantId);
+      activeTenants.some(tenant=>tenant.id===activeTenantId) && (isPlatformAdmin || memberships.some((membership) => membership.tenantId === activeTenantId));
 
     if (!allowed) {
       const error = new Error("You do not have access to this tenant.");
@@ -213,7 +213,7 @@ export async function getAuthSession(database, authUser, selectedTenantId) {
       throw error;
     }
   } else {
-    activeTenantId = isPlatformAdmin ? "" : memberships[0]?.tenantId || "";
+    activeTenantId = isPlatformAdmin ? "" : activeTenants[0]?.id || "";
   }
 
   const modulesByTenant = {};
@@ -241,6 +241,7 @@ export function requireTenant(session) {
     throw error;
   }
 
+  if(!session.isPlatformAdmin&&!session.memberships?.some(m=>m.tenantId===session.activeTenantId))throw Object.assign(Error("Hotel access denied."),{statusCode:403});
   return session.activeTenantId;
 }
 
@@ -282,7 +283,7 @@ export function getTenantRole(session, tenantId = session.activeTenantId) {
 export function requireTenantAdmin(session, tenantId = session.activeTenantId) {
   const role = getTenantRole(session, tenantId);
 
-  if (role !== "tenant_admin" && role !== "platform_admin") {
+  if (!["tenant_admin","platform_admin","manager"].includes(role)) {
     const error = new Error("Tenant admin access is required.");
     error.statusCode = 403;
     throw error;
@@ -383,11 +384,11 @@ export async function updateTenant(database, tenantId, patch) {
         current.basicInfo?.displayName ||
         cleanString(patch.name) ||
         current.name,
-      address: cleanString(patch.basicInfo?.address) || current.basicInfo?.address || "",
+      address: patch.basicInfo?.address===undefined?current.basicInfo?.address||"":cleanString(patch.basicInfo.address),
       contactEmail:
-        cleanString(patch.basicInfo?.contactEmail) || current.basicInfo?.contactEmail || "",
-      phone: cleanString(patch.basicInfo?.phone) || current.basicInfo?.phone || "",
-      timezone: cleanString(patch.basicInfo?.timezone) || current.basicInfo?.timezone || "",
+        patch.basicInfo?.contactEmail===undefined?current.basicInfo?.contactEmail||"":cleanString(patch.basicInfo.contactEmail),
+      phone: patch.basicInfo?.phone===undefined?current.basicInfo?.phone||"":cleanString(patch.basicInfo.phone),
+      timezone: patch.basicInfo?.timezone===undefined?current.basicInfo?.timezone||"":cleanString(patch.basicInfo.timezone),
     },
     updatedAt: now(),
   };

@@ -54,12 +54,18 @@ export async function handleUserManagementRoute({ request, pathname, body, conte
 
   if (request.method === "PATCH" && pathname === "/api/tenant/profile") {
     requireTenantAdmin(session, tenantId);
+    if(["tenantId","modules","globalRole","role","active","slug"].some(key=>key in body))throw Object.assign(Error("This setting is managed by the platform."),{statusCode:403});
+    if(body.name!==undefined&&(typeof body.name!=="string"||!body.name.trim()||body.name.length>100))throw Object.assign(Error("Hotel name must contain 1–100 characters."),{statusCode:400});
+    if(body.basicInfo?.contactEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.basicInfo.contactEmail))throw Object.assign(Error("Enter a valid contact email."),{statusCode:400});
+    if(body.basicInfo?.timezone){try{new Intl.DateTimeFormat("en",{timeZone:body.basicInfo.timezone})}catch{throw Object.assign(Error("Select a valid time zone."),{statusCode:400})}}
+    const info=Object.fromEntries(["displayName","address","contactEmail","phone","timezone"].filter(k=>body.basicInfo?.[k]!==undefined).map(k=>[k,body.basicInfo[k]]));
+
     return {
       status: 200,
       payload: await updateTenant(database, tenantId, {
         name: body.name,
         displayName: body.displayName,
-        basicInfo: body.basicInfo,
+        basicInfo: info,
       }),
     };
   }
@@ -74,7 +80,7 @@ export async function handleUserManagementRoute({ request, pathname, body, conte
   if (request.method === "POST" && pathname === "/api/tenant/invitations") {
     return {
       status: 201,
-      payload: await createUserInvitation(database, session, tenantId, body, {
+      payload: await createUserInvitation(database, session, tenantId, {email:body.email,role:body.role}, {
         baseUrl: requestBaseUrl(request),
       }),
     };

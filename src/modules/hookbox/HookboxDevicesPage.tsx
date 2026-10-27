@@ -49,51 +49,45 @@ export function HookboxDevicesPage() {
   return (
     <section className="hb-editor hb-device-page">
       <p className="hb-eyebrow">{tenant?.name}</p>
-      <h1>{selected?.name || "Mis dispositivos HOOKBOX"}</h1>
+      <h1>{selected?.name || "My HOOKBOX devices"}</h1>
       <p>
-        Personaliza las pantallas asignadas a tu hotel. Los cambios de diseño se
-        sincronizan sin actualizar el firmware.
+        Customize the displays assigned to your hotel. Published designs sync
+        automatically with the display.
       </p>
       {error && <p role="alert">{error}</p>}
-      {loading && <p>Cargando dispositivos…</p>}
+      {loading && <p>Loading devices…</p>}
       {selected ? (
         <>
-          <a href={base}>Volver a mis dispositivos</a>
+          <a href={base}>Back to my devices</a>
           <div className="hb-device-detail">
             <div>
-              <span>Pantalla</span>
+              <span>Display</span>
               <strong>{selected.deviceId}</strong>
             </div>
             <div>
-              <span>Estado</span>
+              <span>Status</span>
               <strong>
                 {selected.lastSeenAt &&
                 Date.now() - Date.parse(selected.lastSeenAt) < 90000
-                  ? "Conectado"
-                  : "Sin conexión reciente"}
+                  ? "Connected"
+                  : "No recent connection"}
               </strong>
             </div>
             <div>
-              <span>Firmware</span>
+              <span>Published design</span>
               <strong>
-                {selected.currentFirmwareVersion || "Sin informar"}
+                {selected.uiDesiredVersion || "Default template"}
               </strong>
             </div>
             <div>
-              <span>Diseño publicado</span>
+              <span>Design confirmed by display</span>
               <strong>
-                {selected.uiDesiredVersion || "Plantilla predeterminada"}
-              </strong>
-            </div>
-            <div>
-              <span>Diseño confirmado por la pantalla</span>
-              <strong>
-                {selected.uiAppliedVersion || "Pendiente de confirmación"}
+                {selected.uiAppliedVersion || "Waiting for confirmation"}
               </strong>
             </div>
           </div>
           <a className="hb-primary-link" href={`${base}/${selected.id}/screen`}>
-            Personalizar pantalla
+            Customize display
           </a>
           {selected.uiRejectedReason && (
             <p role="alert">{selected.uiRejectedReason}</p>
@@ -105,21 +99,16 @@ export function HookboxDevicesPage() {
             <article key={d.id}>
               <span className="hb-eyebrow">HOOKBOX</span>
               <h2>{d.name}</h2>
-              <p>
-                {d.currentFirmwareVersion
-                  ? "Firmware " + d.currentFirmwareVersion
-                  : "Sin firmware informado"}
-              </p>
-              <a href={`${base}/${d.id}`}>Ver dispositivo</a>
+              <a href={`${base}/${d.id}`}>View device</a>
               <a className="hb-primary-link" href={`${base}/${d.id}/screen`}>
-                Personalizar pantalla
+                Customize display
               </a>
             </article>
           ))}
           {!loading && !error && !devices.length && (
             <p>
-              No hay dispositivos HOOKBOX asignados a este hotel. El
-              administrador de plataforma puede asignarlos.
+              No HOOKBOX displays are assigned to this hotel. Contact your
+              platform administrator to assign a display.
             </p>
           )}
         </div>

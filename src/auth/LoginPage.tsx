@@ -40,6 +40,7 @@ export function LoginPage() {
           <span>{t("email")}</span>
           <input
             type="email"
+            required
             autoComplete="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -49,6 +50,7 @@ export function LoginPage() {
           <span>{t("password")}</span>
           <input
             type="password"
+            required
             autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}

@@ -191,9 +191,9 @@ export async function authenticateSessionRequest(database, request) {
 
   if (!selectedTenantId && selectedTenantSlug) {
     const cleanSlug = cleanString(selectedTenantSlug);
-    const tenant = (await database.listRecords("tenants")).find(
-      (candidate) => candidate.slug === cleanSlug,
-    );
+    const available=user.globalRole==="platform_admin"?await database.listRecords("tenants"):await Promise.all((await database.getMembershipsForUser(user.id)).map(m=>database.getRecord("tenants",m.tenantId)));
+    const tenant=available.find(candidate=>candidate?.slug===cleanSlug);
+    if(!tenant&&user.globalRole!=="platform_admin")throw Object.assign(Error("Hotel access denied."),{statusCode:403});
 
     if (!tenant) {
       const error = new Error("Tenant not found.");

@@ -92,17 +92,17 @@ export function AdminPage() {
 
   function openHotelIntegrations(tenant: AdminTenantSummary) {
     window.open(
-      `/t/${encodeURIComponent(tenant.slug)}/integrations`,
+      `/t/${encodeURIComponent(tenant.slug)}/admin/integrations`,
       "_blank",
       "noopener,noreferrer",
     );
   }
 
   return (
-    <section className="module-page">
+    <section className="module-page platform-admin-page">
       <div className="module-title">
         <div>
-          <h1>Platform Admin</h1>
+          <h1>Superadmin</h1>
           <p>Tenants, users and enabled modules.</p>
         </div>
         <button type="button" onClick={() => void reload()}>
@@ -151,15 +151,10 @@ export function AdminPage() {
           <span>{tenants.length}</span>
         </div>
         <div className="tenant-table">
-          <div className="tenant-table-head">
-            <span>Hotel</span>
-            <span>Status / settings</span>
-            <span>Users</span>
-            <span>Created</span>
-            <span>Modules</span>
-          </div>
           {tenants.map((tenant) => (
-            <article key={tenant.id} className="tenant-row">
+            <details key={tenant.id} className="hotel-admin-row">
+            <summary><strong>{tenant.name}</strong><span>{tenant.active?"Active":"Inactive"}</span><span>{MODULE_REGISTRY.filter(module=>module.implemented&&tenant.modules[module.id]).map(module=>module.label).join(" · ")||"No modules"}</span><span>Manage hotel</span></summary>
+            <article className="tenant-row">
               <div>
                 <strong>{tenant.name}</strong>
                 <span>{tenant.slug}</span>
@@ -193,7 +188,7 @@ export function AdminPage() {
                   </button>
                 ))}
               </div>
-            </article>
+            </article></details>
           ))}
         </div>
       </section>

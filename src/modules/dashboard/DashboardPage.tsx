@@ -43,7 +43,7 @@ import type { CheckoutOverview } from "../../types/checkout";
 import type { Detection } from "../../types/detection";
 import type { ModuleId, TenantRole } from "../../types/modules";
 
-type HousekeepingAction = "claim" | "bed_done" | "cleaning_done" | "complete" | "assign";
+type HousekeepingAction = "claim" | "bed_done" | "cleaning_done" | "complete" | "assign" | "undo_bed" | "undo_cleaning" | "reopen";
 type RoomFilter = "all" | "unassigned" | "mine" | "inProgress" | "done";
 
 const DEFAULT_WIDGETS: Record<TenantRole | "platform_admin", DashboardWidgetSettings> = {
@@ -235,7 +235,7 @@ export function DashboardPage({
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, [board]);
 
-  const checkoutsToday = checkout?.events.filter((event) => isToday(event.timestamp)).length ?? 0;
+  const checkoutsToday = checkout?.events.filter((event) => event.status!=="reversed"&&isToday(event.timestamp)).length ?? 0;
   const waitingRooms = checkout?.rooms.filter((room) => room.status === "ready_for_cleaning").length ?? 0;
   const detectionsToday = detections.filter((detection) => isToday(detection.detectedAt)).length;
   const progressTotal = (board?.items.length || 0) + (board?.done.length || 0);
@@ -264,6 +264,7 @@ export function DashboardPage({
   }, [board?.done, board?.items, filter, user?.id]);
 
   async function runRoomAction(room: HousekeepingRoomItem, action: HousekeepingAction, targetUserId?: string) {
+    const correction=action==="reopen"||Boolean(room.housekeeping.completedAt);if(correction&&!window.confirm("Reopen this completed cleaning? Other employees may be affected."))return;
     const previous = board;
     const target = targetUserId ? staff.find((member) => member.userId === targetUserId) : currentStaff;
     setBoard((current) => optimisticBoard(current, room.eventId, action, user?.id, target));
@@ -271,7 +272,7 @@ export function DashboardPage({
     setNotice("");
     try {
       const result = await performHousekeepingAction({
-        action,
+        action,confirmed:correction,
         eventId: room.eventId,
         assignmentTargetUserId: action === "assign" ? targetUserId : undefined,
       });
@@ -379,7 +380,7 @@ export function DashboardPage({
             <span aria-hidden="true">P</span><strong>{detectionsToday}</strong><span>{t("parkingToday")}</span>
           </button>
         )}
-        {visibleWidgets.reservations && status && status.reservationSource !== "demo" && (
+        {visibleWidgets.reservations && status?.reservationSource && status.reservationSource !== "demo" && (
           <button type="button" className="stat-item compact-kpi">
             <span aria-hidden="true">R</span><strong>{status?.reservationsLoaded ?? 0}</strong><span>{t("currentReservations")}</span>
           </button>
@@ -438,8 +439,8 @@ export function DashboardPage({
                     className={room.housekeeping.bedDoneAt ? "done" : ""}
                     aria-label={`${t("bed")} ${room.roomNumber}`}
                     aria-pressed={Boolean(room.housekeeping.bedDoneAt)}
-                    disabled={Boolean(room.housekeeping.bedDoneAt || busy)}
-                    onClick={() => void runRoomAction(room, "bed_done")}
+                    disabled={Boolean(busy)||(Boolean(room.housekeeping.completedAt)&&!canManageHousekeeping)}
+                    onClick={() => void runRoomAction(room, room.housekeeping.bedDoneAt?"undo_bed":"bed_done")}
                   >
                     <Bed size={16} />{room.housekeeping.bedDoneAt && <CheckCircle2 size={11} />}
                   </button>
@@ -448,17 +449,17 @@ export function DashboardPage({
                     className={room.housekeeping.cleaningDoneAt ? "done" : ""}
                     aria-label={`${t("cleaning")} ${room.roomNumber}`}
                     aria-pressed={Boolean(room.housekeeping.cleaningDoneAt)}
-                    disabled={Boolean(room.housekeeping.cleaningDoneAt || busy)}
-                    onClick={() => void runRoomAction(room, "cleaning_done")}
+                    disabled={Boolean(busy)||(Boolean(room.housekeeping.completedAt)&&!canManageHousekeeping)}
+                    onClick={() => void runRoomAction(room, room.housekeeping.cleaningDoneAt?"undo_cleaning":"cleaning_done")}
                   >
                     <Sparkles size={16} />{room.housekeeping.cleaningDoneAt && <CheckCircle2 size={11} />}
                   </button>
                   <button
                     type="button"
                     className="finish"
-                    aria-label={`${t("finish")} ${room.roomNumber}`}
-                    disabled={Boolean(busy)}
-                    onClick={() => void runRoomAction(room, "complete")}
+                    aria-label={`${room.housekeeping.completedAt?"Reopen cleaning":t("finish")} ${room.roomNumber}`}
+                    disabled={Boolean(busy)||!room.housekeeping.bedDoneAt||!room.housekeeping.cleaningDoneAt||(Boolean(room.housekeeping.completedAt)&&!canManageHousekeeping)}
+                    onClick={() => void runRoomAction(room, room.housekeeping.completedAt?"reopen":"complete")}
                   >
                     <CheckCircle2 size={17} />
                   </button>
@@ -480,7 +481,7 @@ export function DashboardPage({
                 <div key={event.id}>
                   <span>{new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                   <strong>{t("room")} {room?.number || "-"}</strong>
-                  <span>{event.source.toUpperCase()}</span>
+                  <span>{event.status==="reversed"?"Reversed":event.source.toUpperCase()}</span>
                 </div>
               );
             })}
@@ -489,7 +490,7 @@ export function DashboardPage({
         </details>
       )}
 
-      {(visibleWidgets.telegram || visibleWidgets.diagnostics) && (
+      {session?.isPlatformAdmin && (visibleWidgets.telegram || visibleWidgets.diagnostics) && (
         <details className="panel collapsible-panel">
           <summary>{t("secondaryTools")}</summary>
           <div className="settings-form">

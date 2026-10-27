@@ -1,216 +1,252 @@
 import { useEffect, useState } from "react";
-import { Save } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
-import { SettingsIntegrations } from "../../components/SettingsIntegrations";
+import { TenantUsersPage } from "./TenantUsersPage";
+import { HookboxDevicesPage } from "../hookbox/HookboxDevicesPage";
 import {
-  getBackendStatus,
-  getDashboardSettings,
-  getAppVersion,
-  getIntegrationSettings,
-  updateDashboardSettings,
   updateTenantProfile,
-  type AppVersion,
-  type BackendStatus,
-  type DashboardSettings,
-  type DashboardWidgetKey,
-  type IntegrationSettings,
+  hotelPaymentRequest,
 } from "../../services/backendApi";
-import { getBackendUrl } from "../../services/backendConfigService";
-import type { ReservationLoadResult } from "../../types/reservation";
-
 export function SettingsPage() {
-  const { session, activeTenantId, refreshSession } = useAuth();
-  const [notice, setNotice] = useState("");
-  const [backendStatus, setBackendStatus] = useState<BackendStatus>();
-  const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings>();
-  const [dashboardSettings, setDashboardSettings] = useState<DashboardSettings>();
-  const [appVersion, setAppVersion] = useState<AppVersion>();
-  const [backendUrl, setActiveBackendUrl] = useState(getBackendUrl());
-  const activeTenant = session?.tenants.find((tenant) => tenant.id === activeTenantId);
-  const activeTenantRole =
-    session?.memberships.find((membership) => membership.tenantId === activeTenantId)?.role ||
-    (session?.isPlatformAdmin && activeTenantId ? "platform_admin" : undefined);
-  const canEditHotel =
-    activeTenantRole === "tenant_admin" || activeTenantRole === "platform_admin";
-  const [hotelName, setHotelName] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [address, setAddress] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [phone, setPhone] = useState("");
-
-  async function refreshBackendState() {
-    const [nextStatus, nextSettings, nextVersion] = await Promise.all([
-      getBackendStatus(),
-      getIntegrationSettings(),
-      getAppVersion(),
-    ]);
-    setBackendStatus(nextStatus);
-    setIntegrationSettings(nextSettings);
-    setAppVersion(nextVersion);
-    if (canEditHotel) {
-      setDashboardSettings(await getDashboardSettings());
-    }
-  }
-
-  useEffect(() => {
-    void refreshBackendState().catch((error) =>
-      setNotice(error instanceof Error ? error.message : "Could not load settings."),
-    );
-  }, []);
-
-  useEffect(() => {
-    setHotelName(activeTenant?.name || "");
-    setDisplayName(activeTenant?.basicInfo?.displayName || activeTenant?.name || "");
-    setAddress(activeTenant?.basicInfo?.address || "");
-    setContactEmail(activeTenant?.basicInfo?.contactEmail || "");
-    setPhone(activeTenant?.basicInfo?.phone || "");
-  }, [activeTenant]);
-
-  async function saveHotelProfile() {
-    await updateTenantProfile({
-      name: hotelName,
-      displayName,
-      basicInfo: {
-        displayName,
-        address,
-        contactEmail,
-        phone,
-      },
-    });
-    await refreshSession();
-    setNotice("Hotel profile saved.");
-  }
-
-  async function saveDashboardWidgets(nextSettings = dashboardSettings) {
-    if (!nextSettings) return;
-    setDashboardSettings(await updateDashboardSettings(nextSettings));
-    setNotice("Dashboard widgets saved.");
-  }
-
-  function toggleWidget(role: keyof DashboardSettings["widgets"], key: DashboardWidgetKey) {
-    if (!dashboardSettings) return;
-    const next = {
-      widgets: {
-        ...dashboardSettings.widgets,
-        [role]: {
-          ...dashboardSettings.widgets[role],
-          [key]: !dashboardSettings.widgets[role][key],
-        },
-      },
-    };
-    setDashboardSettings(next);
-  }
-
+  const { session, activeTenantId, refreshSession } = useAuth(),
+    hotel = session?.tenants.find((h) => h.id === activeTenantId);
+  const base = "/t/" + encodeURIComponent(hotel?.slug || "") + "/settings",
+    section =
+      window.location.pathname.split("/settings")[1]?.split("/")[1] ||
+      (window.location.pathname.endsWith("/integrations")
+        ? "integrations"
+        : "general");
+  const [name, setName] = useState(hotel?.name || ""),
+    [address, setAddress] = useState(hotel?.basicInfo?.address || ""),
+    [email, setEmail] = useState(hotel?.basicInfo?.contactEmail || ""),
+    [phone, setPhone] = useState(hotel?.basicInfo?.phone || ""),
+    [timezone, setTimezone] = useState(hotel?.basicInfo?.timezone || "UTC"),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false);
   return (
-    <section className="module-page">
-      {notice && <div className={notice.includes("Could not") ? "notice error" : "notice"}>{notice}</div>}
-      {canEditHotel && (
-        <section className="panel">
-          <div className="section-heading">
-            <h2>Hotel Profile</h2>
-            <span>{activeTenant?.slug}</span>
-          </div>
-          <div className="settings-form">
-            <div className="settings-split">
-              <label>
-                <span>Hotel name</span>
-                <input value={hotelName} onChange={(event) => setHotelName(event.target.value)} />
-              </label>
-              <label>
-                <span>Visible name</span>
-                <input
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                />
-              </label>
-            </div>
+    <section className="module-page customer-settings">
+      <div className="module-title">
+        <div>
+          <h1>Settings</h1>
+          <p>{hotel?.name}</p>
+        </div>
+      </div>
+      <nav className="settings-tabs" aria-label="Hotel settings">
+        {[
+          ["general", "General"],
+          ["users", "Staff & Users"],
+          ["display", "HOOKBOX Display"],
+          ["payments", "Payments"],
+          ["integrations", "Integrations"],
+        ].map(([key, label]) => (
+          <a
+            key={key}
+            className={section === key ? "active" : ""}
+            href={base + "/" + key}
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
+      {section === "users" ? (
+        <TenantUsersPage />
+      ) : section === "display" ? (
+        <HookboxDevicesPage />
+      ) : section === "payments" ? (
+        <PaymentsSettings />
+      ) : section === "integrations" ? (
+        <section className="panel integration-summary">
+          <h2>Property management system</h2>
+          <span className="status-tag">Not connected</span>
+          <p>
+            PMS connection is coming soon. Your hotel’s rooms and daily
+            departures can be managed manually.
+          </p>
+        </section>
+      ) : (
+        <form
+          className="panel settings-compact"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            setNotice("");
+            try {
+              await updateTenantProfile({
+                name,
+                displayName: name,
+                basicInfo: {
+                  ...hotel?.basicInfo,
+                  displayName: name,
+                  address,
+                  contactEmail: email,
+                  phone,
+                  timezone,
+                },
+              });
+              await refreshSession();
+              setNotice("Hotel details saved.");
+            } catch (err) {
+              setNotice((err as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <h2>General</h2>
+          <label>
+            Hotel name
+            <input
+              required
+              maxLength={100}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <label>
+            Address
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+          </label>
+          <div className="settings-split">
             <label>
-              <span>Address</span>
-              <input value={address} onChange={(event) => setAddress(event.target.value)} />
+              Contact email
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </label>
-            <div className="settings-split">
-              <label>
-                <span>Contact email</span>
-                <input
-                  value={contactEmail}
-                  onChange={(event) => setContactEmail(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Phone</span>
-                <input value={phone} onChange={(event) => setPhone(event.target.value)} />
-              </label>
-            </div>
-            <div className="button-row">
-              <button type="button" onClick={() => void saveHotelProfile()}>
-                <Save size={15} />
-                Save hotel
-              </button>
-            </div>
+            <label>
+              Phone
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </label>
           </div>
-        </section>
+          <label>
+            Time zone
+            <input
+              required
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              placeholder="Europe/Zurich"
+            />
+            <small>Used for daily checkout and housekeeping dates.</small>
+          </label>
+          <button className="primary" disabled={busy} type="submit">
+            {busy ? "Saving…" : "Save changes"}
+          </button>
+        </form>
       )}
-      {canEditHotel && dashboardSettings && (
-        <section className="panel">
-          <div className="section-heading">
-            <h2>Dashboard widgets</h2>
-          </div>
-          <div className="settings-form dashboard-widget-settings">
-            {(Object.keys(dashboardSettings.widgets) as Array<keyof DashboardSettings["widgets"]>).map((role) => (
-              <div key={role} className="widget-role-block">
-                <strong>{role}</strong>
-                <div className="widget-toggle-grid">
-                  {(Object.keys(dashboardSettings.widgets[role]) as DashboardWidgetKey[]).map((key) => (
-                    <label key={key} className="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={dashboardSettings.widgets[role][key]}
-                        onChange={() => toggleWidget(role, key)}
-                      />
-                      <span>{key}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
-            <button type="button" onClick={() => void saveDashboardWidgets()}>
-              <Save size={15} />
-              Save widgets
-            </button>
-          </div>
-        </section>
-      )}
-      <SettingsIntegrations
-        settings={integrationSettings}
-        backendStatus={backendStatus}
-        backendUrl={backendUrl}
-        onBackendUrlChange={async (url) => {
-          setActiveBackendUrl(url);
-          await refreshBackendState();
-        }}
-        onSettingsChange={setIntegrationSettings}
-        onNotice={setNotice}
-        onRefreshReservations={async () => {
-          await refreshBackendState();
-        }}
-      />
-      <section className="panel">
-        <div className="section-heading">
-          <h2>About</h2>
-        </div>
-        <div className="meta-list settings-form">
-          <span>Version</span>
-          <strong>{appVersion?.version || "unknown"}</strong>
-          <span>Environment</span>
-          <strong>{appVersion?.environment || "unknown"}</strong>
-        </div>
-      </section>
     </section>
   );
 }
-
-export const emptyReservationDiagnostics: ReservationLoadResult = {
-  reservations: [],
-  source: "demo",
-  updatedAt: new Date().toISOString(),
-};
+function PaymentsSettings() {
+  const [state, setState] = useState<{
+      connected: boolean;
+      mode: string | null;
+      connectAvailable: boolean;
+    }>(),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void fetchPayment()
+      .then(setState)
+      .catch((e) => setError(e.message));
+  }, []);
+  async function fetchPayment() {
+    const r = await hookboxRequestPayment("GET");
+    return r;
+  }
+  async function action(type: string) {
+    if (busy) return;
+    setError("");
+    setBusy(true);
+    try {
+      if (
+        type === "connect" &&
+        state?.connected &&
+        !window.confirm("Replace the Stripe connection for this hotel?")
+      )
+        return;
+      if (
+        type === "disconnect" &&
+        !window.confirm(
+          "Disconnect Stripe from this hotel? Existing payments and history will be kept.",
+        )
+      )
+        return;
+      const r = await hookboxRequestPayment("POST", { action: type });
+      if (r.url) window.location.assign(r.url);
+      else setState(await fetchPayment());
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel integration-summary">
+      <h2>Stripe</h2>
+      {error && <p role="alert">{error}</p>}
+      {new URLSearchParams(window.location.search).get("connection") ===
+        "connected" && <p role="status">Stripe account connected.</p>}
+      {new URLSearchParams(window.location.search).get("connection") ===
+        "cancelled" && (
+        <p role="status">
+          Connection cancelled. Your existing settings have been kept.
+        </p>
+      )}
+      {!state ? (
+        <p>Loading payment connection…</p>
+      ) : (
+        <>
+          <span className="status-tag">
+            {state.connected ? "Connected" : "Not connected"}
+          </span>
+          {state.mode && (
+            <strong>
+              {state.mode === "live"
+                ? "Live payments"
+                : "Test mode — no live charges"}
+            </strong>
+          )}
+          <p>
+            Connect your Stripe account securely. Credentials stay on the
+            server.
+          </p>
+          <div className="button-row">
+            <button
+              disabled={busy || !state.connectAvailable}
+              onClick={() => void action("connect")}
+            >
+              {state.connected ? "Reconnect Stripe" : "Connect Stripe"}
+            </button>
+            {state.connected && (
+              <button disabled={busy} onClick={() => void action("disconnect")}>
+                Disconnect
+              </button>
+            )}
+          </div>
+          {!state.connectAvailable && (
+            <p>Account linking is not configured by the platform yet.</p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+async function hookboxRequestPayment(
+  method: string,
+  body?: unknown,
+): Promise<any> {
+  return hotelPaymentRequest(method, body);
+}

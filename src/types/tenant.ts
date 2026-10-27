@@ -58,6 +58,7 @@ export interface UserInvitation {
   revokedAt?: string | null;
   status: "pending" | "used" | "expired" | "revoked";
   inviteUrl?: string;
+  delivery?:{status:"accepted"|"not_configured"|"failed"};
 }
 
 export interface TenantModule {

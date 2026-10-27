@@ -1,3 +1,6 @@
+import {createPaymentsService,recordConnectedPayment} from "./services/paymentsService.js";
+import {handlePaymentsRoute} from "./routes/paymentsRoutes.js";
+import {authorizeCustomerRoute,authorizeEvidence,customerIntegrationSettings} from "./services/customerAccess.js";
 import { createHookboxService } from './hookbox/service.js';
 import { createCheckinProvider } from './hookbox/provider.js';
 import { handleHookboxRoute } from './hookbox/routes.js';
@@ -93,6 +96,8 @@ function loadEnvFile() {
 function sendJson(response, statusCode, payload, headers = {}, request) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
     ...corsHeaders(request),
     ...headers,
   });
@@ -135,13 +140,16 @@ async function readJsonBody(request) {
     return {};
   }
 
-  return JSON.parse(rawBody.toString("utf8"));
+  try{return JSON.parse(rawBody.toString("utf8"));}catch{throw Object.assign(Error("Invalid JSON request."),{statusCode:400})}
 }
 
 async function readRawBody(request) {
   const chunks = [];
+  let size=0;
 
   for await (const chunk of request) {
+    size+=chunk.length;
+    if(size>2*1024*1024)throw Object.assign(Error("Request is too large."),{statusCode:413});
     chunks.push(chunk);
   }
 
@@ -385,13 +393,15 @@ function sendRouteResult(response, result) {
 
 async function getProtectedContext(request) {
   const session = await authenticateRequest(request, database);
+  if(!["GET","HEAD","OPTIONS"].includes(request.method)&&request.headers.origin!==process.env.APP_ORIGIN)throw Object.assign(Error("Request origin not allowed."),{statusCode:403});
+  authorizeCustomerRoute(session,request.method,new URL(request.url,"http://localhost").pathname);
   return { database, session, publicCheckoutLimiter };
 }
 
 function logUnexpectedError(scope, error) {
   const statusCode = error?.statusCode || 500;
 
-  if (statusCode >= 500) {
+  if (statusCode >= 500 && !error?.statusCode) {
     console.error(`[${scope}] Unexpected error`);
     console.error(error?.stack || error);
   }
@@ -430,6 +440,7 @@ let polling = false;
 let scheduledPushPolling = false;
 
 async function pollFrigate() {
+  if(process.env.FRIGATE_POLL_ENABLED==="false")return;
   if (polling) {
     return;
   }
@@ -471,7 +482,7 @@ async function pollScheduledPushes() {
   }
 }
 
-try {
+if(process.env.FRIGATE_POLL_ENABLED!=="false")try {
   const connection = await frigateClient.testConnection();
   status.frigateConnected = true;
   status.frigateVersion = connection?.version || (await frigateClient.getVersion());
@@ -560,7 +571,7 @@ const server = createServer(async (request, response) => {
       } catch (error) {
         logUnexpectedError("AuthSession", error);
         sendJson(response, error.statusCode || 500, {
-          error: error instanceof Error ? error.message : "Unexpected server error",
+          error: error?.statusCode && error.statusCode < 500 ? error.message : "Service temporarily unavailable.",
         });
       }
       return;
@@ -780,6 +791,11 @@ const server = createServer(async (request, response) => {
       }
     }
 
+    if(pathname.startsWith("/api/tenant/payments")){
+      const context=await getProtectedContext(request);
+      const result=await handlePaymentsRoute({request,pathname,parsedUrl,body:request.method==="GET"?{}:await readJsonBody(request),session:context.session,service:createPaymentsService(database)});
+      if(sendRouteResult(response,result))return;
+    }
     if (pathname.startsWith("/api/tenant/")) {
       const result = await handleUserManagementRoute({
         request,
@@ -809,10 +825,9 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && pathname === "/api/parking/detections") {
       const context = await getProtectedContext(request);
       const tenantId = await requireModule(database, context.session, "parking");
-      const detections = (await database.getDetections())
-        .filter((detection) => detectionBelongsToTenant(detection, tenantId))
+      const detections = (await database.listTenantRecords("detections",tenantId))
         .sort((left, right) => new Date(right.detectedAt).getTime() - new Date(left.detectedAt).getTime());
-      sendJson(response, 200, detections);
+      sendJson(response, 200, context.session.isPlatformAdmin?detections:detections.map(d=>{const {metadata,snapshotUrl,videoUrl,...safe}=d;return {...safe,localSnapshotPath:d.localSnapshotPath?path.basename(d.localSnapshotPath):null,localVideoPath:d.localVideoPath?path.basename(d.localVideoPath):null}}));
       return;
     }
 
@@ -821,7 +836,7 @@ const server = createServer(async (request, response) => {
       const context = await getProtectedContext(request);
       const tenantId = await requireModule(database, context.session, "parking");
       const detectionId = decodeURIComponent(detectionReviewMatch[1]);
-      const detection = await database.getDetection(detectionId);
+      const detection = await database.getTenantRecord("detections",tenantId,detectionId);
       requireDetectionForTenant(detection, tenantId);
       const body = await readJsonBody(request);
       const reviewStatus = ["pending", "confirmed", "dismissed"].includes(body.reviewStatus)
@@ -837,7 +852,7 @@ const server = createServer(async (request, response) => {
       const context = await getProtectedContext(request);
       const tenantId = await requireModule(database, context.session, "parking");
       const detectionId = decodeURIComponent(detectionConfirmMatch[1]);
-      const detection = await database.getDetection(detectionId);
+      const detection = await database.getTenantRecord("detections",tenantId,detectionId);
       requireDetectionForTenant(detection, tenantId);
       const body = await readJsonBody(request);
       const candidate = body.candidate || {};
@@ -861,8 +876,10 @@ const server = createServer(async (request, response) => {
 
     const evidenceMatch = pathname.match(/^\/api\/evidence\/(snapshots|clips)\/([^/]+)$/);
     if (request.method === "GET" && evidenceMatch) {
-      await getProtectedContext(request);
+      const context=await getProtectedContext(request);
+      await requireModule(database,context.session,"parking");
       const [, collection, filename] = evidenceMatch;
+      await authorizeEvidence(database,context.session,collection==="clips"?"clip":"snapshot",decodeURIComponent(filename));
       const kind = collection === "clips" ? "clip" : "snapshot";
       const contentType = kind === "clip" ? "video/mp4" : "image/jpeg";
       await sendEvidenceFile(
@@ -875,6 +892,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "GET" && pathname === "/api/status") {
       const context = await getProtectedContext(request);
+      if(!context.session.isPlatformAdmin){requireTenant(context.session);sendJson(response,200,{backendOnline:true});return;}
       await eventProcessor.refreshExpiredPlateStates();
       const plateStateDiagnostics = await database.getPlateStateDiagnostics();
       const tenantSettings = context.session.activeTenantId
@@ -915,6 +933,7 @@ const server = createServer(async (request, response) => {
         context.session.activeTenantId,
       );
 
+      if(!context.session.isPlatformAdmin){sendJson(response,200,customerIntegrationSettings(tenantSettings));return;}
       sendJson(response, 200, {
         ...tenantSettings,
         frigate: {
@@ -1260,6 +1279,14 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if(request.method==="POST"&&pathname==="/api/stripe/connect/webhook"){
+      const raw=await readRawBody(request),verified=await createPaymentsService(database).verifyWebhook(raw,request.headers["stripe-signature"]);
+      const input=verified.tenantId?extractStripeCheckInInput(verified.event):null;
+      if(!input||!input.reservationCode||!['paid','succeeded','no_payment_required'].includes(input.paymentStatus)){sendJson(response,200,{received:true,ignored:true});return;}
+      const result=await recordConnectedPayment(database,verified.tenantId,verified.event.account,input,tx=>createEventProcessor({database:tx,frigateClient,fileStorage,processedEvents,plateCooldown,tenantId:DEFAULT_TENANT_ID}).processCheckInEvent({...input,tenantId:verified.tenantId}));
+      if(!result.duplicate)status.lastCheckInCreated=result.checkIn.createdAt;
+      sendJson(response,200,{received:true,duplicate:result.duplicate});return;
+    }
     if (request.method === "POST" && pathname === "/api/stripe/webhook") {
       const rawBody = await readRawBody(request);
       const signature = request.headers["stripe-signature"];
@@ -1291,6 +1318,7 @@ const server = createServer(async (request, response) => {
         return;
       }
 
+      if(stripeEvent.account){sendJson(response,200,{received:true,ignored:true});return;}
       const checkInInput = extractStripeCheckInInput(stripeEvent);
 
       if (!checkInInput) {
@@ -1340,7 +1368,7 @@ const server = createServer(async (request, response) => {
 
       try {
         console.log(`[Detection] Delete requested: ${detectionId}`);
-        const detection = await database.getDetection(detectionId);
+        const detection = await database.getTenantRecord("detections",tenantId,detectionId);
 
         if (!detection) {
           console.warn(`[Detection] Delete failed: detection not found (${detectionId})`);
@@ -1445,7 +1473,7 @@ const server = createServer(async (request, response) => {
     }
     logUnexpectedError("HTTP", error);
     sendJson(response, error.statusCode || 500, {
-      error: error instanceof Error ? error.message : "Unexpected server error",
+      error: error?.statusCode && error.statusCode < 500 ? error.message : "Service temporarily unavailable.",
       ...(error?.code ? { code: error.code } : {}),
     });
   }
