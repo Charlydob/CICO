@@ -1,4 +1,10 @@
-import { getDeviceIntegration, saveDeviceIntegration, rotateDeviceWebhookSecret } from "./integration.js";
+import {
+  getDeviceIntegration,
+  saveDeviceIntegration,
+  retryOutbound,
+  buildOutboundPreview,
+  rotateDeviceWebhookSecret,
+} from "./integration.js";
 import {
   requireTenant,
   requireTenantAdmin,
@@ -96,6 +102,7 @@ export async function handleHookboxRoute({
         if (body.schemaVersion !== 1) fail("Unsupported schema");
         const methods = {
           "design/ack": "ack",
+          pin: "pin",
           lookup: "lookup",
           verify: "verify",
           "release/start": "start",
@@ -130,17 +137,71 @@ export async function handleHookboxRoute({
     )
       fail("Request origin not allowed", 403);
     const path = pathname.slice(adminPath.length);
-    if(!session.isPlatformAdmin&&["diagnostics","inherit"].includes(path))fail("Technical configuration requires superadmin",403);
-    const integrationMatch = path.match(/^devices\/([a-f0-9-]{36})\/integration$/);
-    const rotateMatch = path.match(/^devices\/([a-f0-9-]{36})\/integration\/rotate-secret$/);
+    if (!session.isPlatformAdmin && ["diagnostics", "inherit"].includes(path))
+      fail("Technical configuration requires superadmin", 403);
+    const hookMatch = path.match(
+      /^devices\/([a-f0-9-]{36})\/hooks(?:\/(rearm))?$/,
+    );
+    const httpAction = path.match(
+      /^devices\/([a-f0-9-]{36})\/integration\/(simulate|retry)$/,
+    );
+    if (hookMatch) {
+      if (request.method === "GET" && !hookMatch[2])
+        payload = await service.hooks(tenant, hookMatch[1]);
+      else if (request.method === "POST")
+        payload = await service[hookMatch[2] ? "rearmHook" : "saveHook"](
+          tenant,
+          hookMatch[1],
+          await readHookboxJson(request),
+          session.user.id,
+        );
+      else fail("Method not allowed", 405);
+      return send(payload);
+    }
+    if (httpAction && request.method === "POST") {
+      const body = await readHookboxJson(request);
+      if (httpAction[2] === "simulate") {
+        const c = await getDeviceIntegration(database, tenant, httpAction[1]);
+        payload = {
+          simulated: true,
+          preview: buildOutboundPreview(body.outbound || c.outbound),
+        };
+      } else
+        payload = await retryOutbound(
+          database,
+          tenant,
+          httpAction[1],
+          body.eventId,
+        );
+      return send(payload);
+    }
+    const integrationMatch = path.match(
+      /^devices\/([a-f0-9-]{36})\/integration$/,
+    );
+    const rotateMatch = path.match(
+      /^devices\/([a-f0-9-]{36})\/integration\/rotate-secret$/,
+    );
     if ((integrationMatch || rotateMatch) && !database)
       fail("Database unavailable", 503);
     if (request.method === "GET" && integrationMatch)
-      payload = await getDeviceIntegration(database, tenant, integrationMatch[1]);
+      payload = await getDeviceIntegration(
+        database,
+        tenant,
+        integrationMatch[1],
+      );
     else if (request.method === "POST" && integrationMatch)
-      payload = await saveDeviceIntegration(database, tenant, integrationMatch[1], await readHookboxJson(request));
+      payload = await saveDeviceIntegration(
+        database,
+        tenant,
+        integrationMatch[1],
+        await readHookboxJson(request),
+      );
     else if (request.method === "POST" && rotateMatch)
-      payload = await rotateDeviceWebhookSecret(database, tenant, rotateMatch[1]);
+      payload = await rotateDeviceWebhookSecret(
+        database,
+        tenant,
+        rotateMatch[1],
+      );
     else if (request.method === "GET" && path === "devices")
       payload = await service.devices(tenant);
     else if (request.method === "GET" && /^devices\/[a-f0-9-]{36}$/.test(path))
@@ -162,11 +223,12 @@ export async function handleHookboxRoute({
         request,
         path === "assets" ? 50000 : 12288,
       );
-      if(!session.isPlatformAdmin&&path==="draft"){
-        const current=await service.editor(tenant,body.deviceId);
-        body.mapping=current.hotel.mapping;
+      if (!session.isPlatformAdmin && path === "draft") {
+        const current = await service.editor(tenant, body.deviceId);
+        body.mapping = current.hotel.mapping;
       }
-      if(!session.isPlatformAdmin&&path==="publish"&&body.restoreVersion)fail("Use the visual draft to restore a design",403);
+      if (!session.isPlatformAdmin && path === "publish" && body.restoreVersion)
+        fail("Use the visual draft to restore a design", 403);
       if (path === "inherit") payload = await service.inherit(tenant, body);
       else if (path === "draft") payload = await service.draft(tenant, body);
       else if (path === "publish")
@@ -174,11 +236,32 @@ export async function handleHookboxRoute({
       else if (path === "assets") payload = await service.upload(tenant, body);
       else fail("Hookbox endpoint not found", 404);
     } else fail("Hookbox endpoint not found", 404);
-    if(!session.isPlatformAdmin){
-      const safeDevice=d=>{const {events,currentFirmwareVersion,currentBuildId,hardwareModel,...safe}=d;return safe;};
-      if(path==="devices")payload=payload.map(safeDevice);else if(path.startsWith("devices/"))payload=safeDevice(payload);
-      if(path==="editor"){payload={...payload,hotel:{...payload.hotel,mapping:[]},devices:payload.devices.map(safeDevice),versions:payload.versions.map(v=>({...v,manifestRaw:undefined,manifest:{theme:v.manifest.theme}}))};}
-      if(path==="draft")payload={...payload,mapping:[]};
+    if (!session.isPlatformAdmin) {
+      const safeDevice = (d) => {
+        const {
+          events,
+          currentFirmwareVersion,
+          currentBuildId,
+          hardwareModel,
+          ...safe
+        } = d;
+        return safe;
+      };
+      if (path === "devices") payload = payload.map(safeDevice);
+      else if (path.startsWith("devices/")) payload = safeDevice(payload);
+      if (path === "editor") {
+        payload = {
+          ...payload,
+          hotel: { ...payload.hotel, mapping: [] },
+          devices: payload.devices.map(safeDevice),
+          versions: payload.versions.map((v) => ({
+            ...v,
+            manifestRaw: undefined,
+            manifest: { theme: v.manifest.theme },
+          })),
+        };
+      }
+      if (path === "draft") payload = { ...payload, mapping: [] };
     }
   }
   return send(payload);

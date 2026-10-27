@@ -1,3 +1,4 @@
+import { enqueueOutbound } from '../hookbox/integration.js';
 import { randomBytes } from "node:crypto";
 import {
   dispatchCheckoutNotifications,
@@ -1005,7 +1006,7 @@ export function createOtaService(
                   key.authorized&&key.active?"AUTHORIZED_ROOM_NOT_LINKED":"NOT_AUTHORIZED",
                 diagnostic:event.detail||null,deviceUptimeMs:event.uptimeMs,
               }});
-              if(authorizedRoom&&!duplicate) {
+              if(authorizedRoom&&!duplicate&&!event.detail.includes("return_flow_v2")) {
                 if(!database)
                   throw new Error("RFID checkout processing requires the application database service.");
                 const checkout=await registerCheckout(database,tenant.id,room.id,"rfid",{
@@ -1030,7 +1031,151 @@ export function createOtaService(
                 if(!checkout.duplicate) queuedCheckouts.push(checkout);
               }
             }
-          } else if(event.type==="CONFIG_REJECTED"||event.type==="CONFIG_STALE_REJECTED") {
+          } else if (event.type === "RETURN_ACCEPTED") {
+            // Expected detail: {uid,operationId}; RFID_READ alone cannot notify a hotel.
+            let accepted;
+            try {
+              accepted = JSON.parse(event.detail || "{}");
+            } catch {
+              continue;
+            }
+            if (
+              device.hardwareModel !== "ESP32_DEVKIT_CHECKOUT_V1" ||
+              !/^[a-f0-9-]{36}$/i.test(accepted.operationId || "") ||
+              !Number.isInteger(accepted.rfidUptimeMs)
+            )
+              continue;
+            const uid = String(accepted.uid || "").toUpperCase();
+            if (accepted.durable === true) {
+              const receiptId = device.id + ":" + accepted.operationId;
+              if (
+                await tx.deviceReturnReceipt.findUnique({
+                  where: { id: receiptId },
+                })
+              )
+                continue;
+              await tx.$queryRaw`SELECT id FROM devices WHERE id=${device.id}::uuid FOR UPDATE`;
+              const live = await tx.device.findUnique({
+                where: { id: device.id },
+              });
+              if (
+                !live ||
+                live.tenantId !== device.tenantId ||
+                live.tokenHash !== device.tokenHash ||
+                live.credentialRevokedAt
+              )
+                throw otaError("Device assignment changed", 409);
+              const key = await tx.deviceRfidKey.findFirst({
+                where: {
+                  deviceId: device.id,
+                  uid,
+                  authorized: true,
+                  active: true,
+                },
+              });
+              const number = key?.room.replace(/^habitaci[oó]n\s+/i, "").trim();
+              const room = number
+                ? await tx.room.findFirst({
+                    where: {
+                      tenantId: device.tenantId,
+                      active: true,
+                      deletedAt: null,
+                      OR: [
+                        { number: { equals: number, mode: "insensitive" } },
+                        { name: { equals: number, mode: "insensitive" } },
+                      ],
+                    },
+                  })
+                : null;
+              if (!room) {
+                await tx.deviceReturnReceipt.create({
+                  data: {
+                    id: receiptId,
+                    deviceId: device.id,
+                    tenantId: device.tenantId,
+                  },
+                });
+                continue;
+              }
+              const checkout = await registerCheckout(
+                database,
+                device.tenantId,
+                room.id,
+                "rfid",
+                {
+                  transaction: tx,
+                  deferNotifications: true,
+                  suppressIfRoomPending: true,
+                  sourceIdentifier: receiptId,
+                  metadata: {
+                    deviceId: device.id,
+                    uid,
+                    returnOperationId: accepted.operationId,
+                    physicalConfirmation: false,
+                    acceptance: "servo_command_accepted",
+                  },
+                },
+              );
+              const reading=await tx.deviceRfidReading.findFirst({where:{deviceId:device.id,tenantId:device.tenantId,uid,deviceUptimeMs:accepted.rfidUptimeMs},orderBy:{createdAt:'desc'}});
+              const patch={checkoutEventId:checkout.event?.id||null,eventType:'RETURN_RECORDED',result:checkout.duplicate?'DUPLICATE_SUPPRESSED':'AUTHORIZED_RETURN_RECORDED',duplicate:checkout.duplicate};
+              if(reading)await tx.deviceRfidReading.update({where:{id:reading.id},data:patch});
+              else await tx.deviceRfidReading.create({data:{...patch,deviceId:device.id,tenantId:device.tenantId,keyId:key.id,uid,keyName:key.name,room:room.number,hotelName:(await tx.tenant.findUnique({where:{id:device.tenantId}}))?.name||'',authorized:true,active:true,deviceUptimeMs:accepted.rfidUptimeMs,diagnostic:'durable_return'}});
+              await tx.deviceReturnReceipt.create({
+                data: {
+                  id: receiptId,
+                  deviceId: device.id,
+                  tenantId: device.tenantId,
+                  checkoutEventId: checkout.event?.id,
+                },
+              });
+              if (checkout.event)
+                await enqueueOutbound(
+                  tx,
+                  device,
+                  "checkout",
+                  checkout.event.id,
+                  room.number,
+                  accepted.occurredAt && Number.isFinite(Date.parse(accepted.occurredAt)) && Date.parse(accepted.occurredAt)<=Date.now()+300000 ? new Date(accepted.occurredAt) : new Date(),
+                );
+              if (!checkout.duplicate) queuedCheckouts.push(checkout);
+              continue;
+            }
+
+            const reading = await tx.deviceRfidReading.findFirst({
+              where: {
+                deviceId: device.id,
+                tenantId: device.tenantId,
+                uid,
+                deviceUptimeMs: accepted.rfidUptimeMs,
+                result: "AUTHORIZED_RETURN_RECORDED",
+                checkoutEventId: { not: null },
+              },
+              orderBy: { createdAt: "desc" },
+            });
+            if (!reading) continue;
+            const key = await tx.deviceRfidKey.findFirst({
+              where: {
+                deviceId: device.id,
+                uid,
+                authorized: true,
+                active: true,
+              },
+            });
+            if (!key || !reading.checkoutEventId) continue;
+            const checkout = await tx.checkoutEvent.findFirst({
+              where: { id: reading.checkoutEventId, tenantId: device.tenantId },
+              include: { room: true },
+            });
+            if (checkout)
+              await enqueueOutbound(
+                tx,
+                device,
+                "checkout",
+                checkout.id,
+                checkout.room.number,
+                accepted.occurredAt && Number.isFinite(Date.parse(accepted.occurredAt)) && Date.parse(accepted.occurredAt)<=Date.now()+300000 ? new Date(accepted.occurredAt) : new Date(),
+              );
+                    } else if(event.type==="CONFIG_REJECTED"||event.type==="CONFIG_STALE_REJECTED") {
             await tx.device.update({where:{id:device.id},data:{configRejectedReason:event.detail||event.type}});
           }
         }

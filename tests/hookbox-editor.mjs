@@ -1,197 +1,110 @@
+import { chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
-import path from "node:path";
+import assert from "node:assert/strict";
+import { defaultTheme } from "../shared/hookbox/contract.mjs";
 const output = process.env.HOOKBOX_BROWSER_OUTPUT_DIR || "work/browser";
 await mkdir(output, { recursive: true });
-import { chromium } from "playwright";
-import { defaultTheme } from "../shared/hookbox/contract.mjs";
-import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
-let draft = defaultTheme("Gasthaus Steinbock"),
+const browser = await chromium.launch({ headless: true }),
+  page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+let draft = defaultTheme("Hotel PIN"),
   revision = 0,
   published = 0;
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 await page.route("**/api/hookbox/**", async (route) => {
-  const req = route.request(),
-    path = new URL(req.url()).pathname.split("/").at(-1);
+  const r = route.request(),
+    p = new URL(r.url()).pathname.split("/").at(-1);
   let body = {};
-  if (path === "editor")
+  if (p === "editor")
     body = {
-      hotel: {
-        draft,
-        revision,
-        mapping: [
-          { room: "101", hook: 1 },
-          { room: "102", hook: 25 },
-        ],
-      },
-      versions: [],
+      hotel: { draft, revision, mapping: [] },
       devices: [{ id: "panel", name: "CrowPanel MOCK" }],
+      versions: [],
     };
-  else if (path === "draft") {
-    const b = req.postDataJSON();
+  if (p === "draft") {
+    const b = r.postDataJSON();
     draft = b.theme;
     revision++;
     body = { draft, revision, mapping: b.mapping };
-  } else if (path === "assets") {
-    const b = req.postDataJSON();
-    body = {
-      id: createHash("sha256")
-        .update(Buffer.from(b.data, "base64"))
-        .digest("hex"),
-      width: b.width,
-      height: b.height,
-      kind: b.kind,
-    };
-  } else if (path === "publish") {
+  }
+  if (p === "publish") {
     published++;
-    revision++;
-    body = { version: "test-v1" };
+    body = { version: "published" };
   }
   await route.fulfill({ json: body });
 });
-await page.goto(
-  (process.env.HOOKBOX_TEST_ORIGIN || "http://127.0.0.1:4321") +
-    "/tests/hookbox-editor.html",
-);
-await page.getByLabel("Hotel name").waitFor({ state: "attached" });
-await page.evaluate(() => document.fonts.ready);
-await page.getByRole("button", { name: "Edit", exact: true }).click();
-await page.getByLabel("Hotel name").fill("Hotel Prueba");
-await page.locator("canvas").scrollIntoViewIfNeeded();
-const editBounds = await page.locator("canvas").boundingBox();
-await page.mouse.click(
-  editBounds.x + (120 * editBounds.width) / 800,
-  editBounds.y + (120 * editBounds.height) / 480,
-);
-await page.getByLabel("Selected text", { exact: true }).fill("Guten Tag");
-await page.getByLabel("Element color", { exact: true }).fill("#c5a575");
-assert.equal(await page.locator(".hb-selected").count(), 1);
-
-await page
-  .getByRole("button", { name: "Save draft", exact: true })
-  .click();
-await page.getByText("Draft saved", { exact: true }).waitFor();
-assert.equal(draft.hotelName, "Hotel Prueba");
-assert.equal(draft.texts.de.welcome, "Guten Tag");
-assert.equal(draft.colors.primary, "#c5a575");
-await page.getByRole('button',{name:'Search',exact:true}).click();await page.waitForTimeout(150);
-const frozenWaiting=await page.locator('canvas').evaluate(c=>c.toDataURL());
-await page.waitForTimeout(1000);
-assert.ok(await page.locator('canvas').evaluate(c=>c.toDataURL())===frozenWaiting,'Edit mode freezes automatic preview transitions');
-assert.equal(await page.locator('.hb-selected').count(),0);
-await page.getByRole('button',{name:'Home',exact:true}).click();
-
-await page.getByRole("button", { name: "Preview", exact: true }).click();
-const canvas = page.locator("canvas");
-const pixels = () => canvas.evaluate((c) => c.toDataURL());
-assert.equal(await page.getByLabel("Template").inputValue(), "guest-portal");
-for (const screen of ["Search", "Room", "Error", "Delivery", "Done"]) {
-  await page.getByRole("button", { name: screen, exact: true }).click();
-  await page.waitForTimeout(30);
-  assert.ok((await pixels()).length > 1000);
-}
-await page
-  .getByLabel("Display configuration", { exact: true })
-  .selectOption("panel");
-await page.getByLabel("Hotel name").waitFor({ state: "attached" });
-await page
-  .getByLabel("Display configuration", { exact: true })
-  .selectOption("");
-await page
-  .getByRole("button", { name: "Identification & keyboard", exact: true })
-  .click();
-async function tap(x, y) {
+try {
+  await page.goto(
+    (process.env.HOOKBOX_TEST_ORIGIN || "http://127.0.0.1:4321") +
+      "/tests/hookbox-editor.html",
+  );
+  await page
+    .getByRole("heading", { name: "Pantalla PIN · 800 × 480" })
+    .waitFor();
+  await page.getByLabel("Nombre del hotel").fill("Hotel Prueba");
+  await page.getByLabel("Campo PIN", { exact: true }).fill("PIN");
+  await page
+    .getByRole("button", { name: "Guardar borrador", exact: true })
+    .click();
+  await page.getByText("Diseño guardado", { exact: true }).waitFor();
+  assert.equal(draft.hotelName, "Hotel Prueba");
+  const canvas = page.locator("canvas");
+  await canvas.scrollIntoViewIfNeeded();
+  await canvas.screenshot({ path: output + "/pin-qr-hidden.png" });
+  await page.getByLabel("Mostrar QR").check();
+  await page.getByLabel("URL HTTPS o texto").fill("https://example.com/pin");
+  await page
+    .getByRole("button", { name: "Guardar borrador", exact: true })
+    .click();
+  await page.waitForTimeout(100);
+  assert.equal(draft.qr.enabled, true);
+  await canvas.scrollIntoViewIfNeeded();
+  await canvas.screenshot({ path: output + "/pin-qr-visible.png" });
+  await page.getByLabel("Posición horizontal").fill("32");
+  await page
+    .getByRole("button", { name: "Guardar borrador", exact: true })
+    .click();
+  await page.waitForTimeout(100);
+  assert.equal(draft.qr.x, 32);
+  await page
+    .getByRole("button", { name: "Publicar en pantalla", exact: true })
+    .click();
+  await page
+    .getByText("Publicado. Esperando confirmación de la pantalla.", {
+      exact: true,
+    })
+    .waitFor();
+  assert.equal(published, 1);
+  await page.reload();
+  await page.getByLabel("Mostrar QR").waitFor();
+  assert.equal(await page.getByLabel("Mostrar QR").isChecked(), true);
+  assert.equal(await page.getByLabel("Posición horizontal").inputValue(), "32");
+  await page.getByLabel("Mostrar QR").uncheck();
+  await page.getByLabel("Vista", { exact: true }).selectOption("home");
+  await canvas.scrollIntoViewIfNeeded();
   const r = await canvas.boundingBox();
-  await page.mouse.click(r.x + (x * r.width) / 800, r.y + (y * r.height) / 480);
+  const tap = async (x, y) =>
+    page.mouse.click(r.x + (x * r.width) / 800, r.y + (y * r.height) / 480);
+  for (const [x, y] of [
+    [200, 150],
+    [350, 150],
+    [500, 150],
+    [200, 220],
+  ])
+    await tap(x, y);
+  await tap(200, 420);
+  assert.equal(
+    await page.getByLabel("Vista", { exact: true }).inputValue(),
+    "waiting",
+  );
+  await page.getByLabel("Vista", { exact: true }).selectOption("error");
+  await canvas.screenshot({ path: output + "/pin-error.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByLabel("Vista", { exact: true }).selectOption("home");
+  await canvas.scrollIntoViewIfNeeded();
+  await canvas.screenshot({ path: output + "/pin-mobile.png" });
+  assert.deepEqual(errors, []);
+  console.log("PIN_EDITOR_BROWSER_PASS");
+} finally {
+  await browser.close();
 }
-await tap(40, 280);
-await tap(120, 280);
-await tap(550, 220);
-await page.getByRole("button", { name: "Verification", exact: true }).waitFor();
-await page.getByRole("button", { name: "Home", exact: true }).click();
-await tap(694, 44); // fr
-assert.equal(
-  await page.getByLabel("Preview language").inputValue(),
-  "fr",
-);
-await page
-  .getByRole("button", { name: "Publish design", exact: true })
-  .click();
-await page
-  .getByText("Design published; waiting for device confirmation")
-  .waitFor();
-assert.equal(published, 1);
-await page.getByRole("button", { name: "Edit", exact: true }).click();
-await page.getByLabel("Hotel name").fill("Guest House Steinbock");
-await page
-  .getByRole("button", { name: "Apply Steinbock branding", exact: true })
-  .click();
-await page
-  .getByText(
-    "Steinbock branding loaded as a draft; review and publish to apply",
-    { exact: true },
-  )
-  .waitFor();
-await page.getByRole("button", { name: "Preview", exact: true }).click();
-await canvas.scrollIntoViewIfNeeded();
-const bounds = await canvas.boundingBox();
-await page.mouse.move(
-  bounds.x + (150 * bounds.width) / 800,
-  bounds.y + (40 * bounds.height) / 480,
-);
-await page.mouse.down();
-await page.waitForTimeout(5100);
-await page.mouse.up();
-await page.waitForTimeout(100);
-const servicePixels = await pixels();
-await page.getByRole("button", { name: "Home", exact: true }).click();
-await page.waitForTimeout(100);
-assert.notEqual(
-  await pixels(),
-  servicePixels,
-  "five second hold opens PIN view",
-);
-await page
-  .getByRole("button", {
-    name: "Restore default template",
-    exact: true,
-  })
-  .click();
-assert.equal(
-  await page.getByLabel("Hotel name").inputValue(),
-  "Guest House Steinbock",
-);
-await page.waitForTimeout(200);
-await page.screenshot({
-  path: path.join(output, "editor-hookbox.png"),
-  fullPage: true,
-});
-await canvas.screenshot({ path: path.join(output, "pantalla-steinbock.png") });
-assert.deepEqual(errors, []);
-console.log(
-  "EDITOR_BROWSER_PASS: editing, save, publication, touch form, keyboard, language, canvas render",
-);
-await page.getByRole("button", { name: "Edit", exact: true }).click();
-await canvas.scrollIntoViewIfNeeded();
-const selectedBounds = await canvas.boundingBox();
-await page.mouse.click(
-  selectedBounds.x + (120 * selectedBounds.width) / 800,
-  selectedBounds.y + (120 * selectedBounds.height) / 480,
-);
-await page.screenshot({ path: path.join(output, "editor-contextual.png") });
-await page.setViewportSize({ width: 390, height: 844 });
-await page.waitForTimeout(500);
-await canvas.scrollIntoViewIfNeeded();
-assert.ok(
-  await page.evaluate(
-    () => document.documentElement.scrollWidth <= window.innerWidth + 1,
-  ),
-  "mobile editor has no horizontal overflow",
-);
-await page.screenshot({
-  path: path.join(output, "editor-contextual-mobile.png"),
-});
-await browser.close();

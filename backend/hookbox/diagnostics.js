@@ -1,6 +1,6 @@
 export function redactProtocol(value, key = "") {
   if (
-    /token|secret|password|credential|authorization|cookie|proof|^value$|surname|guest|name|email|phone|document|reservationId|challengeId|^room$/i.test(
+    /pin|token|secret|password|credential|authorization|cookie|proof|^value$|surname|guest|name|email|phone|document|reservationId|challengeId|^room$/i.test(
       key,
     )
   )

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { hookboxRequest } from "../../services/backendApi";
 import "./hookbox.css";
+import { HookboxPinsPanel } from "../admin/HookboxPinsPanel";
+
 import { HookboxIntegrationPanel } from "../admin/HookboxIntegrationPanel";
 type Panel = {
   id: string;
@@ -76,9 +78,7 @@ export function HookboxDevicesPage() {
             </div>
             <div>
               <span>Published design</span>
-              <strong>
-                {selected.uiDesiredVersion || "Default template"}
-              </strong>
+              <strong>{selected.uiDesiredVersion || "Default template"}</strong>
             </div>
             <div>
               <span>Design confirmed by display</span>
@@ -90,7 +90,8 @@ export function HookboxDevicesPage() {
           <a className="hb-primary-link" href={`${base}/${selected.id}/screen`}>
             Customize display
           </a>
-          <HookboxIntegrationPanel deviceId={selected.id}/>
+          <HookboxPinsPanel deviceId={selected.id} />
+          <HookboxIntegrationPanel deviceId={selected.id} />
           {selected.uiRejectedReason && (
             <p role="alert">{selected.uiRejectedReason}</p>
           )}

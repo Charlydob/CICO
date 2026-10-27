@@ -1492,3 +1492,16 @@ export async function hookboxAsset(id:string):Promise<{bytes:ArrayBuffer;width:n
 }
 
 export function hotelPaymentRequest(method:string,body?:unknown):Promise<any>{return requestJson('/api/tenant/payments',{method,...(body?{body:JSON.stringify(body)}:{})});}
+
+export function adminHookboxPinsRequest<T>(
+  deviceId: string,
+  path = "",
+  body?: unknown,
+): Promise<T> {
+  return requestJson<T>(
+    "/api/admin/devices/" + encodeURIComponent(deviceId) + "/hooks" + path,
+    body === undefined
+      ? undefined
+      : { method: "POST", body: JSON.stringify(body) },
+  );
+}

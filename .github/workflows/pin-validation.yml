@@ -1,0 +1,35 @@
+name: PIN delivery verification
+on:
+  pull_request:
+  push:
+    branches: ['codex/pin-delivery']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pin_test
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: pin_test
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U pin_test" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://pin_test:ci-only@127.0.0.1:5432/pin_test
+      HOOKBOX_TEST_DATABASE_URL: postgresql://pin_test:ci-only@127.0.0.1:5432/pin_test
+      OTA_POSTGRES_TEST_DATABASE_URL: postgresql://pin_test:ci-only@127.0.0.1:5432/pin_test
+      CHECKOUT_POSTGRES_TEST_DATABASE_URL: postgresql://pin_test:ci-only@127.0.0.1:5432/pin_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npm test
+      - run: npm run build
+      - run: npx prisma validate

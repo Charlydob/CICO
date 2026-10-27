@@ -9,6 +9,7 @@ import {
 } from "../../services/backendApi";
 import type { OtaUpdate, PhysicalDevice } from "../../types/firmware";
 import { CheckoutBoxDevicePanel } from "./CheckoutBoxDevicePanel";
+import { HookboxPinsPanel } from "./HookboxPinsPanel";
 import { HookboxIntegrationPanel } from "./HookboxIntegrationPanel";
 
 type TenantOption={id:string;name:string;slug?:string};
@@ -77,8 +78,8 @@ export function DeviceDetailPanel({device,devices,tenants,busy,run,onBack,onStar
     </header>
     {device.hardwareModel==="CROWPANEL_7_V3"&&device.tenantId&&<a className="primary-button" href={`/t/${tenants.find(t=>t.id===device.tenantId)?.slug||""}/devices/${device.id}/screen`}>Customize display</a>}
     <nav className="device-section-tabs" aria-label="Device sections">
-      {([['summary','Summary'],['operation',device.hardwareModel==="ESP32_DEVKIT_CHECKOUT_V1"?'Keys and controls':'Diagnostics'],['history','History'],['firmware','Firmware / OTA']] as const).map(([id,label])=><button type="button" key={id} className={section===id?"active":""} onClick={()=>setSection(id)}>{label}</button>)}
-      {device.hardwareModel==="CROWPANEL_7_V3"&&device.tenantId&&<button type="button" className={section==="integration"?"active":""} onClick={()=>setSection("integration")}>Conexión con hotel</button>}
+      {([['summary','Summary'],['operation',device.hardwareModel==="ESP32_DEVKIT_CHECKOUT_V1"?'Keys and controls':'Ganchos y PIN'],['history','History'],['firmware','Firmware / OTA']] as const).map(([id,label])=><button type="button" key={id} className={section===id?"active":""} onClick={()=>setSection(id)}>{label}</button>)}
+      {["CROWPANEL_7_V3","ESP32_DEVKIT_CHECKOUT_V1"].includes(device.hardwareModel)&&device.tenantId&&<button type="button" className={section==="integration"?"active":""} onClick={()=>setSection("integration")}>Integración HTTP</button>}
     </nav>
 
     {section==="integration"&&device.tenantId&&<HookboxIntegrationPanel deviceId={device.id} platformAdmin/>}
@@ -96,7 +97,7 @@ export function DeviceDetailPanel({device,devices,tenants,busy,run,onBack,onStar
       {device.tenantAssignments?.length?<details className="panel device-technical"><summary>History de asignación</summary><div className="compact-history">{device.tenantAssignments.map((entry)=><p key={entry.id}><strong>{entry.toTenantName||"Unassigned"}</strong><span>{date(entry.createdAt)} · antes {entry.fromTenantName||"sin asignar"}</span></p>)}</div></details>:null}
     </>}
 
-    {section==="operation"&&(device.hardwareModel==="ESP32_DEVKIT_CHECKOUT_V1"?<CheckoutBoxDevicePanel device={device} busy={busy} run={run}/>:<section className="panel compact-device-section"><h3>Diagnostics Hookbox</h3><p>Las funciones exclusivas de CheckoutBox no se muestran para este hardware. La telemetría y los comandos compatibles siguen disponibles en Summary e History.</p></section>)}
+    {section==="operation"&&(device.hardwareModel==="ESP32_DEVKIT_CHECKOUT_V1"?<CheckoutBoxDevicePanel device={device} busy={busy} run={run}/>:<HookboxPinsPanel deviceId={device.id} platformAdmin/>)}
 
     {section==="history"&&<>
       <details className="panel device-technical" open={commandOpen} onToggle={(event)=>setCommandOpen(event.currentTarget.open)}><summary>Command history <span>{device.historyTotals?.commands||0}</span></summary>

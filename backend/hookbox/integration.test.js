@@ -1,78 +1,126 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import {
-  buildOutboundPreview, getDeviceIntegration, saveDeviceIntegration,
-  rotateDeviceWebhookSecret, receiveDeviceWebhook, webhookPath,
+  defaultOutbound,
+  normalizeOutbound,
+  buildOutboundPreview,
+  receiveDeviceWebhook,
+  rotateDeviceWebhookSecret,
 } from "./integration.js";
-
-const tenantId = "11111111-1111-4111-8111-111111111111";
-const deviceId = "22222222-2222-4222-8222-222222222222";
-const operationId = "33333333-3333-4333-8333-333333333333";
-function fakeDatabase() {
-  let settings = null;
-  const device = { id: deviceId, tenantId, hardwareModel: "CROWPANEL_7_V3", tokenHash: "old", credentialRevokedAt: null };
-  return {
-    prisma: { device: {
-      findFirst: async ({ where }) => where.id === deviceId && where.tenantId === tenantId ? device : null,
-      findUnique: async ({ where }) => where.id === deviceId ? device : null,
-    }},
-    getRecord: async (collection, key) => collection === "tenantSettings" && key === tenantId ? settings : null,
-    setRecord: async (_collection, _key, value) => { settings = value; return value; },
-    stored: () => settings,
-  };
-}
-test("default JSON template is editable and uses a real Europe/Zurich time", () => {
-  const sample = buildOutboundPreview({
-    fields: [
-      { key: "key", source: "room" },
-      { key: "check-in at", source: "checkin_at" },
-      { key: "literal", source: "constant", value: "ok" },
-    ],
+import { publicAddress, resolvePublic, endpointUrl } from "./httpTransport.js";
+import { redactProtocol } from "./diagnostics.js";
+import { defaultTheme, validateTheme } from "../../shared/hookbox/contract.mjs";
+test("JSON fields, date zone and daylight saving use event time", () => {
+  const config = defaultOutbound();
+  assert.deepEqual(buildOutboundPreview(config), {
+    key: "105",
+    "check-in at": "28.10.2026 14:28",
   });
-  assert.deepEqual(sample, { key: "109", "check-in at": "28.10.2026 14:28", literal: "ok" });
-  assert.equal(webhookPath(deviceId), "/api/integrations/hookbox/devices/" + deviceId + "/webhook");
-});
-test("per-device admin config saves without contacting hotel, validates unsafe values", async () => {
-  const db = fakeDatabase();
-  const initial = await getDeviceIntegration(db, tenantId, deviceId);
-  assert.equal(initial.outbound.enabled, false);
-  assert.equal(initial.webhookEnabled, false);
-  const changed = await saveDeviceIntegration(db, tenantId, deviceId, { outbound: {
-    ...initial.outbound,
-    endpoint: "https://checkin.example.com/checkinguest.php",
-    enabled: true,
-  } });
-  assert.equal(changed.outbound.endpoint, "https://checkin.example.com/checkinguest.php");
-  assert.equal(changed.outbound.fields[0].key, "key");
-  await assert.rejects(saveDeviceIntegration(db, tenantId, deviceId, { outbound: {
-    ...initial.outbound, endpoint: "http://localhost:3333/release", enabled: true,
-  } }), /HTTPS/);
-  await assert.rejects(saveDeviceIntegration(db, tenantId, deviceId, { outbound: {
-    ...initial.outbound, fields: [
-      { key: "key", source: "room" }, { key: "key", source: "room" },
+  assert.equal(
+    buildOutboundPreview(config, { occurredAt: "2026-07-01T12:28:00Z" })[
+      "check-in at"
     ],
-  } }), /repetido/);
+    "01.07.2026 14:28",
+  );
+  const checkout = defaultOutbound("checkout");
+  assert.equal(
+    buildOutboundPreview(checkout)["check-out at"],
+    "28.10.2026 14:28",
+  );
+  assert.throws(
+    () =>
+      normalizeOutbound({
+        ...config,
+        enabled: true,
+        endpoint: "https://hotel.example/",
+      }),
+    /Confirma/,
+  );
+  assert.throws(
+    () => normalizeOutbound({ ...config, timeZone: "Mars/Base" }),
+    /Zona/,
+  );
+  assert.throws(
+    () =>
+      normalizeOutbound({
+        ...config,
+        fields: [
+          { key: "key", source: "room" },
+          { key: "key", source: "device" },
+        ],
+      }),
+    /repetido/,
+  );
 });
-test("webhook denies unauthenticated or mismatched calls; uses only a correlated pending operation", async () => {
-  const db = fakeDatabase();
-  const rotated = await rotateDeviceWebhookSecret(db, tenantId, deviceId);
-  assert.match(rotated.webhookSecret, /^[0-9a-f]{64}$/);
-  assert.equal(db.stored().integrations.hookboxDeviceContracts[deviceId].secretHash,
-    createHash("sha256").update(rotated.webhookSecret).digest("hex"));
-  assert.equal(JSON.stringify(db.stored()).includes(rotated.webhookSecret), false);
-  const payload = {
-    action: "release", request_id: operationId, room: "109", stay_unit_id: "ABC123",
-  };
-  let calls = 0;
-  const service = { authorizeFromWebhook: async (_device, input) => {
-    calls++;
-    assert.deepEqual(input, payload); return { status: "AUTHORIZED", duplicate: false };
-  }};
-  const incoming = { database: db, deviceId, payload, service };
-  await assert.rejects(receiveDeviceWebhook({ ...incoming, token: "wrong" }), /Unauthorized/);
-  await assert.rejects(receiveDeviceWebhook({ ...incoming, token: rotated.webhookSecret, payload: { ...payload, request_id: "invalid" } }), /Expected/);
-  assert.equal(calls, 0);
-  assert.equal((await receiveDeviceWebhook({ ...incoming, token: rotated.webhookSecret })).status, "AUTHORIZED");
-  assert.equal(calls, 1);
+test("SSRF: public DNS required, mixed answers denied, all special IPv4/IPv6 denied", async () => {
+  for (const ip of [
+    "0.0.0.0",
+    "127.0.0.1",
+    "10.0.0.1",
+    "172.16.0.1",
+    "192.168.1.1",
+    "169.254.169.254",
+    "100.64.1.1",
+    "198.18.1.1",
+    "224.1.1.1",
+    "::1",
+    "fc00::1",
+    "fe80::1",
+    "::ffff:127.0.0.1",
+    "2001:db8::1",
+    "2002:7f00:1::",
+  ])
+    assert.equal(publicAddress(ip), false, ip);
+  assert.equal(publicAddress("8.8.8.8"), true);
+  assert.equal(publicAddress("2001:4860:4860::8888"), true);
+  for (const u of [
+    "http://hotel.example/",
+    "https://user:pass@hotel.example/",
+    "https://localhost/",
+    "https://127.1/",
+    "https://[::1]/",
+    "https://2130706433/",
+    "https://hotel.example:8443/",
+  ])
+    assert.throws(() => endpointUrl(u));
+  await assert.rejects(
+    resolvePublic("https://hotel.example/", async () => [
+      { address: "8.8.8.8", family: 4 },
+      { address: "10.0.0.1", family: 4 },
+    ]),
+    /no pública/,
+  );
+  assert.equal(
+    (
+      await resolvePublic("https://hotel.example/", async () => [
+        { address: "8.8.8.8", family: 4 },
+      ])
+    ).ip.address,
+    "8.8.8.8",
+  );
+});
+test("retired authorization and PIN redaction", async () => {
+  await assert.rejects(receiveDeviceWebhook({}), (e) => e.statusCode === 410);
+  await assert.rejects(
+    rotateDeviceWebhookSecret({}),
+    (e) => e.statusCode === 410,
+  );
+  assert.equal(
+    redactProtocol({ pin: "5932", nested: { pinHash: "hash" } }).pin,
+    "[REDACTED]",
+  );
+});
+test("PIN layout: QR visible/hidden/left, bounds and margin persist", () => {
+  const t = defaultTheme();
+  assert.equal(t.qr.enabled, false);
+  assert.equal(validateTheme(t).qr.x, 592);
+  t.qr.enabled = true;
+  validateTheme(t);
+  t.qr.x = 32;
+  validateTheme(t);
+  t.qr.x = 350;
+  assert.throws(() => validateTheme(t), /invade/);
+  t.qr.x = 592;
+  t.qr.margin = 0;
+  assert.throws(() => validateTheme(t), /margen/);
 });
