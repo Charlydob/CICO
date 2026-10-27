@@ -69,13 +69,13 @@ const base = {
     "Bitte identifizieren Sie Ihre Buchung",
     "Check-in-ID",
     "Nachname",
-    "Ihre Check-in-ID",
+    "PIN",
     "Ihr Nachname",
-    "Suchen",
+    "OK",
     "Prüfen",
     "Bestätigungscode eingeben",
     "Schlüssel freigeben",
-    "Buchung wird gesucht",
+    "PIN wird geprüft",
     "Bitte Rezeption kontaktieren",
     "Zimmer",
     "Schlüssel werden bereitgestellt",
@@ -87,13 +87,13 @@ const base = {
     "Please identify your booking",
     "Check-in ID",
     "Surname",
-    "Your check-in ID",
+    "PIN",
     "Your surname",
-    "Search",
+    "OK",
     "Verify",
     "Enter your verification code",
     "Release key",
-    "Searching for booking",
+    "Checking PIN",
     "Please contact reception",
     "Room",
     "Preparing your keys",
@@ -105,13 +105,13 @@ const base = {
     "Identifiez votre réservation",
     "ID de check-in",
     "Nom",
-    "Votre ID de check-in",
+    "PIN",
     "Votre nom",
-    "Rechercher",
+    "OK",
     "Vérifier",
     "Votre code de vérification",
     "Libérer la clé",
-    "Recherche en cours",
+    "Vérification du PIN",
     "Veuillez contacter la réception",
     "Chambre",
     "Préparation des clés",
@@ -123,13 +123,13 @@ const base = {
     "Identifica tu reserva",
     "Check-in-ID",
     "Apellido",
-    "Tu Check-in-ID",
+    "PIN",
     "Tu apellido",
-    "Buscar",
+    "Confirmar",
     "Verificar",
     "Tu código de verificación",
     "Liberar llave",
-    "Buscando reserva",
+    "Comprobando PIN",
     "Contacta con recepción",
     "Habitación",
     "Preparando tus llaves",
@@ -164,7 +164,14 @@ export function defaultTheme(hotelName = "Hotel") {
       inputText: "#ebe4d7",
       inputBorder: "#6c5939",
     },
-    qr: { enabled: true, data: "https://example.com", size: 192 },
+    qr: {
+      enabled: false,
+      data: "https://example.com",
+      size: 160,
+      x: 592,
+      y: 160,
+      margin: 8,
+    },
     logo: null,
     background: null,
     idleMs: 60000,
@@ -189,6 +196,41 @@ export function upgradeTheme(raw) {
     theme.colors = { ...defaults.colors, ...theme.colors };
     for (const l of LANGUAGES)
       theme.texts[l] = { ...defaults.texts[l], ...theme.texts?.[l] };
+  }
+  theme.qr = { x: 592, y: 160, margin: 8, ...theme.qr };
+  const original = defaultTheme(theme.hotelName);
+  for (const l of LANGUAGES) {
+    const updates = {
+      id: "PIN",
+      placeholderId: "PIN",
+      search: { de: "OK", en: "OK", fr: "OK", es: "Confirmar" }[l],
+      searching: {
+        de: "PIN wird geprüft",
+        en: "Checking PIN",
+        fr: "Vérification du PIN",
+        es: "Comprobando PIN",
+      }[l],
+    };
+    for (const [key, value] of Object.entries(updates))
+      if (
+        !theme.texts?.[l]?.[key] ||
+        theme.texts[l][key] === original.texts[l][key] ||
+        [
+          "Your check-in ID",
+          "Ihre Check-in-ID",
+          "Votre ID de check-in",
+          "Tu Check-in-ID",
+          "Search",
+          "Suchen",
+          "Rechercher",
+          "Buscar",
+          "Searching for booking",
+          "Buchung wird gesucht",
+          "Recherche en cours",
+          "Buscando reserva",
+        ].includes(theme.texts[l][key])
+      )
+        theme.texts[l][key] = value;
   }
   return theme;
 }
@@ -257,6 +299,28 @@ export function validateTheme(raw) {
     (raw.qr.data.includes("://") && !/^https:\/\/[^\s]+$/.test(raw.qr.data))
   )
     fail("QR requires safe content and a supported size");
+  const { x, y, margin, size } = raw.qr;
+  if (
+    !Number.isInteger(x) ||
+    !Number.isInteger(y) ||
+    !Number.isInteger(margin) ||
+    margin < 4 ||
+    margin > 16 ||
+    x - margin < 0 ||
+    x + size + margin > 800 ||
+    y - margin < 0 ||
+    y + size + margin > 480
+  )
+    fail("QR fuera de la pantalla o margen inválido");
+  const keypadX = raw.qr.enabled ? (x < 400 ? 312 : 48) : 180;
+  if (
+    raw.qr.enabled &&
+    x - margin < keypadX + 440 &&
+    x + size + margin > keypadX &&
+    y - margin < 454 &&
+    y + size + margin > 64
+  )
+    fail("El QR invade el teclado PIN; muévelo a un lado");
   for (const k of ["logo", "background"])
     if (raw[k] !== null && !/^[a-f0-9]{64}$/.test(raw[k]))
       fail("Invalid asset digest");

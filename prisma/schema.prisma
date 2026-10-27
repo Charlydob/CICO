@@ -406,6 +406,11 @@ enum OtaStatus {
 }
 
 model Device {
+  returnReceipts DeviceReturnReceipt[]
+  pinHooks DevicePinHook[]
+  pinGuard DevicePinGuard?
+  httpIntegration DeviceHttpIntegration?
+  outboundEvents DeviceOutboundEvent[]
   hookboxDesignOverride HookboxDeviceDesign?
   hookboxTraces HookboxProtocolTrace[]
   hookboxOperations HookboxOperation[]
@@ -703,4 +708,80 @@ model HookboxProtocolTrace {
  createdAt DateTime @default(now()) @map("created_at")
  @@index([tenantId,deviceId,createdAt])
  @@map("hookbox_protocol_traces")
+}
+
+
+model DevicePinHook {
+  id String @id @default(uuid()) @db.Uuid
+  deviceId String @map("device_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  hook Int
+  room String
+  pinHash String @map("pin_hash")
+  enabled Boolean @default(true)
+  state String @default("AVAILABLE")
+  operationId String? @map("operation_id") @db.Uuid
+  updatedAt DateTime @updatedAt @map("updated_at")
+  device Device @relation(fields:[deviceId], references:[id], onDelete:Cascade)
+  @@unique([deviceId, hook])
+  @@unique([deviceId, room])
+  @@index([tenantId,deviceId])
+  @@map("device_pin_hooks")
+}
+model DevicePinGuard {
+  deviceId String @id @map("device_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  failures Int @default(0)
+  windowAt DateTime @default(now()) @map("window_at")
+  lockedUntil DateTime? @map("locked_until")
+  minLength Int @default(4) @map("min_length")
+  maxLength Int @default(12) @map("max_length")
+  device Device @relation(fields:[deviceId], references:[id], onDelete:Cascade)
+  @@map("device_pin_guards")
+}
+model DeviceHttpIntegration {
+  deviceId String @id @map("device_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  config Json
+  secrets Json @default("{}")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  device Device @relation(fields:[deviceId], references:[id], onDelete:Cascade)
+  @@index([tenantId])
+  @@map("device_http_integrations")
+}
+model DeviceOutboundEvent {
+  id String @id
+  deviceId String @map("device_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  kind String
+  operationId String @map("operation_id")
+  occurredAt DateTime @map("occurred_at")
+  context Json
+  config Json
+  payload Json
+  secretSnapshot Json @default("{}") @map("secret_snapshot")
+  state String @default("HELD")
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at")
+  httpStatus Int? @map("http_status")
+  httpAcceptedAt DateTime? @map("http_accepted_at")
+  processedAt DateTime? @map("processed_at")
+  lastError String? @map("last_error")
+  history Json @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  device Device @relation(fields:[deviceId], references:[id], onDelete:Restrict)
+  @@index([state,nextAttemptAt])
+  @@index([tenantId,deviceId,createdAt])
+  @@map("device_outbound_events")
+}
+
+model DeviceReturnReceipt {
+  id String @id
+  deviceId String @map("device_id") @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  checkoutEventId String? @map("checkout_event_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  device Device @relation(fields:[deviceId],references:[id],onDelete:Cascade)
+  @@index([tenantId,deviceId])
+  @@map("device_return_receipts")
 }

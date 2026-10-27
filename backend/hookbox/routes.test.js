@@ -15,7 +15,7 @@ import {
 import { defaultTheme } from "../../shared/hookbox/contract.mjs";
 const url = process.env.HOOKBOX_TEST_DATABASE_URL;
 test(
-  "HTTP routes use real device and session authentication, hotel roles, CSRF, JSON bounds, missing provider fail closed",
+  "HTTP routes use real device and session authentication, hotel roles, CSRF, JSON bounds, retired provider fails closed",
   { skip: !url && "Requires disposable migrated PostgreSQL" },
   async () => {
     process.env.DATABASE_URL = url;
@@ -135,9 +135,26 @@ test(
         ).status,
         200,
       );
-      for(const path of ['/api/hookbox/devices','/api/hookbox/devices/'+id]){
-        const own=await api(path,{headers:{cookie,'X-Tenant-Id':tenantId}});assert.equal(own.status,200);assert.equal(JSON.stringify(await own.json()).includes('tokenHash'),false);
-        assert.equal((await api(path,{headers:{cookie:staffCookie,'X-Tenant-Id':tenantId}})).status,403);
+      for (const path of [
+        "/api/hookbox/devices",
+        "/api/hookbox/devices/" + id,
+      ]) {
+        const own = await api(path, {
+          headers: { cookie, "X-Tenant-Id": tenantId },
+        });
+        assert.equal(own.status, 200);
+        assert.equal(
+          JSON.stringify(await own.json()).includes("tokenHash"),
+          false,
+        );
+        assert.equal(
+          (
+            await api(path, {
+              headers: { cookie: staffCookie, "X-Tenant-Id": tenantId },
+            })
+          ).status,
+          403,
+        );
       }
       const b = JSON.stringify({
         revision: 0,
@@ -203,7 +220,7 @@ test(
             }),
           })
         ).status,
-        503,
+        410,
       );
       assert.equal(await db.hookboxClaim.count({ where: { tenantId } }), 0);
     } finally {

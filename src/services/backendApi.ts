@@ -1476,6 +1476,11 @@ export async function downloadFirmwareRelease(id: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+export function adminHookboxIntegrationRequest<T>(deviceId: string, path = "", body?: unknown): Promise<T> {
+  const target = "/api/admin/devices/" + encodeURIComponent(deviceId) + "/integration" + path;
+  return requestJson<T>(target, body === undefined ? undefined : { method: "POST", body: JSON.stringify(body) });
+}
+
 export function hookboxRequest<T>(path: string, body?: unknown): Promise<T> {
   return requestJson<T>('/api/hookbox/'+path, body === undefined ? undefined : {method:'POST',body:JSON.stringify(body)});
 }
@@ -1487,3 +1492,16 @@ export async function hookboxAsset(id:string):Promise<{bytes:ArrayBuffer;width:n
 }
 
 export function hotelPaymentRequest(method:string,body?:unknown):Promise<any>{return requestJson('/api/tenant/payments',{method,...(body?{body:JSON.stringify(body)}:{})});}
+
+export function adminHookboxPinsRequest<T>(
+  deviceId: string,
+  path = "",
+  body?: unknown,
+): Promise<T> {
+  return requestJson<T>(
+    "/api/admin/devices/" + encodeURIComponent(deviceId) + "/hooks" + path,
+    body === undefined
+      ? undefined
+      : { method: "POST", body: JSON.stringify(body) },
+  );
+}

@@ -162,13 +162,7 @@ export class HookboxDeviceSimulator {
       throw e;
     }
   }
-  async checkin({
-    method,
-    value,
-    proof,
-    language = "de",
-    onPulse = async () => {},
-  }) {
+  async checkin({ pin, language = "de", onPulse = async () => {} }) {
     try {
       const old = await this.read("operation.json");
       if (old.status !== "COMPLETE")
@@ -177,14 +171,8 @@ export class HookboxDeviceSimulator {
       if (e.code !== "ENOENT") throw e;
     }
     const operationId = randomUUID();
-    let op = await this.request("lookup", {
-      operationId,
-      method,
-      value,
-      language,
-    });
-    if (op.status !== "CHALLENGE") return op;
-    op = await this.request("verify", { operationId, proof });
+    let op = await this.request("pin", { operationId, pin, mock: true });
+    if (["DENIED", "LOCKED"].includes(op.status)) return op;
     if (op.status !== "AUTHORIZED" || op.mock !== true)
       throw Error("MOCK authorization required");
     await this.atomic("operation.json", {

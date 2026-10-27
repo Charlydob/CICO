@@ -34,6 +34,23 @@ await page.route("**/api/**", async (route) => {
       modules: [],
       modulesByTenant: { [tenant]: {} },
     };
+  else if (path.endsWith("/hooks"))
+    body = { hooks: [], settings: { minLength: 4, maxLength: 12 } };
+  else if (path.endsWith("/integration"))
+    body = {
+      outbound: {
+        enabled: false,
+        contractConfirmed: false,
+        endpoint: "",
+        method: "POST",
+        timeZone: "Europe/Zurich",
+        dateFormat: "DD.MM.YYYY HH:mm",
+        fields: [{ key: "key", source: "room", value: "" }],
+      },
+      preview: { key: "105" },
+      headerNames: [],
+      history: [],
+    };
   else if (path === "/api/hookbox/devices") body = [device];
   else if (path === "/api/hookbox/devices/" + id) body = device;
   else if (path === "/api/hookbox/editor")
@@ -61,26 +78,35 @@ await page.getByRole("link", { name: "View device" }).click();
 await page
   .getByRole("link", { name: "Customize display", exact: true })
   .click();
-await page.getByLabel("Hotel name").waitFor({ state: "attached" });
+await page.getByLabel("Nombre del hotel").waitFor({ state: "attached" });
 assert.equal(
-  await page.getByLabel("Hotel name").inputValue(),
+  await page.getByLabel("Nombre del hotel").inputValue(),
   "Test Hotel",
 );
-assert.equal(
-  await page.getByLabel("Display configuration").isDisabled(),
-  true,
-);
+assert.equal(await page.getByLabel("Aplicar a").isDisabled(), true);
 assert.equal(new URL(page.url()).pathname, base + "/" + id + "/screen");
-await page.getByRole("link", { name: "Back to device" }).click();
+await page.getByRole("link", { name: "Volver al dispositivo" }).click();
 await page
   .getByRole("link", { name: "Customize display", exact: true })
   .waitFor();
 await page.setViewportSize({ width: 390, height: 844 });
-assert.equal(await page.locator('.bottom-nav button').filter({hasText:/Operations/i}).count(),0);
-await page.locator('.bottom-nav button').filter({hasText:'Settings'}).click();
-await page.waitForURL('**/settings');
-assert.equal(await page.locator('.bottom-nav button.active').count(),1);
-assert.equal(await page.locator('.bottom-nav button').first().getAttribute('class'),'');
+assert.equal(
+  await page
+    .locator(".bottom-nav button")
+    .filter({ hasText: /Operations/i })
+    .count(),
+  0,
+);
+await page
+  .locator(".bottom-nav button")
+  .filter({ hasText: "Settings" })
+  .click();
+await page.waitForURL("**/settings");
+assert.equal(await page.locator(".bottom-nav button.active").count(), 1);
+assert.equal(
+  await page.locator(".bottom-nav button").first().getAttribute("class"),
+  "",
+);
 platform = true;
 await page.goto("http://127.0.0.1:4321/admin/devices");
 await page.getByRole("navigation", { name: "Admin", exact: true }).waitFor();

@@ -1,3 +1,5 @@
+import { createPinService } from "./pins.js";
+import { enqueueOutbound } from "./integration.js";
 import { redactProtocol } from "./diagnostics.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -5,8 +7,6 @@ import {
   upgradeTheme,
   validateTheme,
   validateMapping,
-  validateQuery,
-  authorizedRooms,
   LIMITS,
   fail,
 } from "../../shared/hookbox/contract.mjs";
@@ -67,7 +67,8 @@ const editorDeviceFields = {
     select: { id: true, type: true, detail: true, createdAt: true },
   },
 };
-export function createHookboxService(prisma, provider) {
+export function createHookboxService(prisma) {
+  const pins = createPinService(prisma);
   const lock = async (tx, tenant) => {
     await tx.$queryRaw`WITH lock AS (SELECT pg_advisory_xact_lock(hashtext(${`hookbox:${tenant}`}))) SELECT 1::int FROM lock`;
   };
@@ -190,6 +191,10 @@ export function createHookboxService(prisma, provider) {
     });
   }
   return {
+    pin: pins.validate,
+    hooks: pins.list,
+    saveHook: pins.save,
+    rearmHook: pins.rearm,
     async inherit(tenant, input) {
       return transaction(tenant, async (tx) => {
         if (!input.deviceId) fail("Device required");
@@ -545,131 +550,14 @@ export function createHookboxService(prisma, provider) {
         return { schemaVersion: 1, ok: true };
       });
     },
-    async lookup(device, input) {
-      input = validateQuery(input);
-      return transaction(device.tenantId, async (tx) => {
-        await owned(tx, device);
-        const old = await tx.hookboxOperation.findUnique({
-          where: { id: input.operationId },
-        });
-        const fingerprint = digest(
-          JSON.stringify([input.method, input.value, input.language]),
-        );
-        if (old) {
-          await operation(tx, device, old.id);
-          if (old.state.fingerprint !== fingerprint)
-            fail("operationId reused with different lookup", 409);
-          await event(tx, device, "hookbox.duplicate", {
-            operationId: old.id,
-            phase: "lookup",
-          });
-          return response(old);
-        }
-        const busy = await tx.hookboxOperation.findMany({
-          where: { deviceId: device.id, expiresAt: { gt: new Date() } },
-        });
-        if (
-          busy.some((o) =>
-            ["AUTHORIZED", "RELEASING", "UNCERTAIN"].includes(o.state.status),
-          )
-        )
-          fail("Previous operation requires resolution", 409);
-        const p = await provider(device.tenantId, "lookup", {
-          operationId: input.operationId,
-          method: input.method,
-          value: input.value,
-          language: input.language,
-        });
-        if (
-          !["CHALLENGE", "INSUFFICIENT", "AMBIGUOUS", "NOT_FOUND"].includes(
-            p.status,
-          )
-        )
-          fail("Unsupported lookup response", 502);
-        // Lookup never carries room authorization to the device.
-        if (
-          p.status === "CHALLENGE" &&
-          (typeof p.challengeId !== "string" || p.challengeId.length > 128)
-        )
-          fail("Invalid challenge", 502);
-        const op = await tx.hookboxOperation.create({
-          data: {
-            id: input.operationId,
-            tenantId: device.tenantId,
-            deviceId: device.id,
-            expiresAt: new Date(Date.now() + 120000),
-            state: {
-              status: p.status,
-              challenge: p.status === "CHALLENGE" ? "verification_code" : null,
-              challengeId: p.challengeId || null,
-              fingerprint,
-              attempts: 0,
-              rooms: [],
-              results: [],
-              mock: p.mock === true,
-            },
-          },
-        });
-        await event(tx, device, "hookbox.lookup", {
-          operationId: op.id,
-          status: p.status,
-        });
-        return response(op);
-      });
+    async lookup() {
+      fail("Reservation lookup retired. Use PIN", 410);
     },
-    async verify(device, input) {
-      return transaction(device.tenantId, async (tx) => {
-        await owned(tx, device);
-        const op = await operation(tx, device, input.operationId),
-          s = op.state;
-        if (s.status === "AUTHORIZED") return response(op);
-        if (
-          s.status !== "CHALLENGE" ||
-          s.attempts >= 3 ||
-          typeof input.proof !== "string" ||
-          !/^[-A-Za-z0-9]{4,64}$/.test(input.proof)
-        )
-          fail("Verification unavailable", 403);
-        s.attempts++;
-        await save(tx, op, s);
-        // Provider denial is persisted without rolling back attempt counters.
-        let p;
-        try {
-          p = await provider(device.tenantId, "verify", {
-            operationId: op.id,
-            challengeId: s.challengeId,
-            proof: input.proof,
-          });
-          authorizedRooms(p);
-        } catch {
-          await event(tx, device, "hookbox.verification_denied", {
-            operationId: op.id,
-            attempt: s.attempts,
-          });
-          return { ...response({ ...op, state: s }), status: "DENIED" };
-        }
-        const rooms = authorizedRooms(p),
-          publication = await published(tx, device),
-          mapping = validateMapping(
-            publication?.manifest.roomMapping ||
-              (await hotel(tx, device.tenantId)).mapping,
-          );
-        if (!publication) fail("Publish the room mapping before check-in", 409);
-        s.designVersion = publication.id;
-        s.rooms = rooms.map((room) => {
-          const m = mapping.find((m) => m.room === room);
-          if (!m) fail("Authorized room is not mapped", 409);
-          return m;
-        });
-        s.reservationId = p.reservationId;
-        s.status = "AUTHORIZED";
-        s.mock = p.mock === true;
-        await event(tx, device, "hookbox.authorized", {
-          operationId: op.id,
-          rooms: s.rooms,
-        });
-        return response(await save(tx, op, s));
-      });
+    async verify() {
+      fail("External verification retired. Use PIN", 410);
+    },
+    async authorizeFromWebhook() {
+      fail("Hotel authorization retired", 410);
     },
     async start(device, input) {
       return transaction(device.tenantId, async (tx) => {
@@ -685,35 +573,22 @@ export function createHookboxService(prisma, provider) {
         }
         if (s.status !== "AUTHORIZED")
           fail("Identity and delivery conditions required", 403);
-        // Uniqueness claims survive uncertainty and power loss. No automatic reclaim/retry.
-        for (const r of s.rooms) {
-          const prior = await tx.hookboxClaim.findUnique({
+        if (s.pinHookId) {
+          const hook = await tx.devicePinHook.findFirst({
             where: {
-              tenantId_reservationId_room: {
-                tenantId: device.tenantId,
-                reservationId: s.reservationId,
-                room: r.room,
-              },
-            },
-          });
-          if (prior)
-            fail("Key already claimed; staff reconciliation required", 409);
-        }
-        for (const r of s.rooms)
-          await tx.hookboxClaim.create({
-            data: {
+              id: s.pinHookId,
               tenantId: device.tenantId,
-              reservationId: s.reservationId,
-              room: r.room,
+              deviceId: device.id,
               operationId: op.id,
+              state: "BLOCKED",
+              enabled: true,
             },
           });
-        s.status = "RELEASING";
-        await event(tx, device, "hookbox.release_started", {
-          operationId: op.id,
-          mock: s.mock,
-        });
-        return response(await save(tx, op, s));
+          if (!hook) fail("Hook unavailable", 409);
+          s.status = "RELEASING";
+          return response(await save(tx, op, s));
+        }
+        fail("Legacy authorization retired", 410);
       });
     },
     async result(device, input) {
@@ -754,6 +629,33 @@ export function createHookboxService(prisma, provider) {
         }
         if (s.status !== "RELEASING" || input.index !== s.results.length)
           fail("Results must be sequential", 409);
+        if (s.pinHookId) {
+          const h = await tx.devicePinHook.findFirst({
+            where: {
+              id: s.pinHookId,
+              deviceId: device.id,
+              tenantId: device.tenantId,
+              operationId: op.id,
+            },
+          });
+          if (!h) fail("Hook has been rearmed; stale result rejected", 409);
+          await tx.devicePinHook.update({
+            where: { id: h.id },
+            data: {
+              state: input.result === "ELECTRICAL_ACTIVATION"
+                ? "DELIVERED"
+                : input.result === "FAILED"
+                  ? "ERROR"
+                  : "BLOCKED",
+            },
+          });
+          if (input.result === "ELECTRICAL_ACTIVATION" && !s.mock)
+            {
+              const occurredAt=input.occurredAt?new Date(input.occurredAt):new Date();
+              if(!Number.isFinite(+occurredAt)||occurredAt<new Date(+op.createdAt-30000)||occurredAt>new Date(+op.expiresAt+30000))fail('Invalid activation timestamp');
+              await enqueueOutbound(tx, device, "checkin", op.id, h.room,occurredAt);
+            }
+        }
         s.results.push({
           index: input.index,
           result: input.result,

@@ -2,242 +2,289 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
-import { createHash } from "node:crypto";
 import { createHookboxService } from "./service.js";
-import { defaultTheme } from "../../shared/hookbox/contract.mjs";
+import { createPinService } from "./pins.js";
+import {
+  defaultOutbound,
+  saveDeviceIntegration,
+  getDeviceIntegration,
+  createOutboundWorker,
+  retryOutbound,
+} from "./integration.js";
 const url = process.env.HOOKBOX_TEST_DATABASE_URL;
 test(
-  "PostgreSQL Hookbox: tenants, publication, ACK, replay, concurrent claims, sequential outcomes, reboot uncertainty",
-  {
-    skip:
-      !url &&
-      "Set HOOKBOX_TEST_DATABASE_URL to an isolated migrated test database",
-  },
+  "PostgreSQL PIN flow, concurrent claims, isolation, lockout, power loss, outbox restart/retry and rearm",
+  { skip: !url },
   async () => {
     const db = new PrismaClient({ datasources: { db: { url } } }),
-      ta = randomUUID(),
-      tb = randomUUID(),
-      da = randomUUID(),
-      dbid = randomUUID();
-    let verifyCalls = 0;
-    const provider = async (tenant, action, b) => {
-      if (action === "lookup")
-        return {
-          schemaVersion: 1,
-          status: b.value === "ambiguous" ? "AMBIGUOUS" : "CHALLENGE",
-          challengeId: "challenge",
-          mock: true,
-        };
-      verifyCalls++;
-      if (b.proof !== "123456") throw Error("denied");
-      return {
-        schemaVersion: 1,
-        authorized: true,
-        identityVerified: true,
-        conditionsSatisfied: true,
-        reservationId: "stay-" + tenant,
-        rooms: ["101", "102"],
-        mock: true,
-      };
-    };
-    const s = createHookboxService(db, provider);
+      tenant = randomUUID(),
+      other = randomUUID(),
+      id = randomUUID(),
+      id2 = randomUUID(),
+      foreign = randomUUID();
+    const device = { id, tenantId: tenant, deviceId: id, tokenHash: "fixture" },
+      pins = createPinService(db),
+      s = createHookboxService(db, () => {
+        throw Error("Provider must never run");
+      });
     try {
       await db.tenant.createMany({
         data: [
-          { id: ta, name: "A", slug: "hb-" + ta },
-          { id: tb, name: "B", slug: "hb-" + tb },
+          { id: tenant, name: "PIN A", slug: tenant },
+          { id: other, name: "PIN B", slug: other },
         ],
       });
       await db.device.createMany({
         data: [
-          {
-            id: da,
-            deviceId: "test-" + da,
-            tenantId: ta,
-            name: "Panel A",
-            hardwareModel: "CROWPANEL_7_V3",
-            tokenHash: "hash-a",
-          },
-          {
-            id: dbid,
-            deviceId: "test-" + dbid,
-            tenantId: tb,
-            name: "Panel B",
-            hardwareModel: "CROWPANEL_7_V3",
-            tokenHash: "hash-b",
-          },
-        ],
+          { id, tenantId: tenant },
+          { id: id2, tenantId: tenant },
+          { id: foreign, tenantId: other },
+        ].map((d) => ({
+          ...d,
+          deviceId: d.id,
+          name: d.id,
+          hardwareModel: "CROWPANEL_7_V3",
+          tokenHash: "fixture",
+        })),
       });
-      const a = await db.device.findUnique({ where: { id: da } }),
-        b = await db.device.findUnique({ where: { id: dbid } });
-      let editor = await s.editor(ta);
-      assert.equal(editor.hotel.revision, 0);
-      const theme = defaultTheme("Hotel A");
-      await s.draft(ta, {
-        revision: 0,
-        theme,
-        mapping: [
-          { room: "101", hook: 1 },
-          { room: "102", hook: 25 },
-        ],
-      });
-      await assert.rejects(s.draft(ta, { revision: 0, theme, mapping: [] }), {
-        statusCode: 409,
-      });
-      const p = await s.publish(ta, { revision: 1 }, "test-user");
-      assert.equal((await s.sync(a)).version, p.version);
-      const stored = await db.hookboxDesign.findUnique({
-        where: { id: p.version },
-      });
-      assert.notEqual(
-        JSON.stringify(stored.manifest),
-        stored.manifestRaw,
-        "PostgreSQL JSONB reordered the editor object",
+      await pins.save(
+        tenant,
+        id,
+        { hook: 1, room: "105", pin: "5932", enabled: true },
+        "test",
       );
-      const reloaded = await createHookboxService(db, provider).sync(a);
-      assert.equal(reloaded.manifest, stored.manifestRaw);
+      assert.equal((await pins.list(tenant, id)).hooks[0].hasPin, true);
       assert.equal(
-        createHash("sha256").update(reloaded.manifest, "utf8").digest("hex"),
-        reloaded.sha256,
+        JSON.stringify(await pins.list(tenant, id)).includes("5932"),
+        false,
       );
-      assert.equal(reloaded.sha256, p.sha256);
-      // Historical rows with lost original bytes must never send a corrupt design,
-      // but still communicate ownership so a transferred device clears old data.
-      await db.hookboxDesign.update({
-        where: { id: p.version },
-        data: { manifestRaw: null },
-      });
-      const rejectedLegacy = await s.sync(a);
-      assert.equal(rejectedLegacy.version, null);
-      assert.equal(rejectedLegacy.tenantId, ta);
-      assert.equal(rejectedLegacy.reason, "DESIGN_REPUBLISH_REQUIRED");
-      assert.equal(rejectedLegacy.manifest, undefined);
-      await db.hookboxDesign.update({
-        where: { id: p.version },
-        data: { manifestRaw: stored.manifestRaw },
-      });
-
-      assert.equal((await s.sync(b)).version, null);
+      assert.match(
+        (await db.devicePinHook.findFirst({ where: { deviceId: id } })).pinHash,
+        /^\$argon2id\$/,
+      );
       await assert.rejects(
-        s.ack(b, { version: p.version, sha256: p.sha256, status: "applied" }),
+        pins.save(tenant, id, { hook: 2, room: "106", pin: "5932" }),
+        /PIN ya utilizado/,
       );
-      await s.ack(a, {
-        version: p.version,
-        sha256: p.sha256,
-        status: "applied",
-      });
-      assert.equal((await s.editor(ta)).devices[0].uiAppliedVersion, p.version);
-      // Visual publication leaves the prior servo/RFID configuration untouched.
-      assert.deepEqual(
-        (await db.device.findUnique({ where: { id: da } })).desiredConfig,
-        {},
-      );
-      const asset = await s.upload(ta, {
-        kind: "logo",
-        width: 1,
-        height: 1,
-        data: Buffer.from([0, 0]).toString("base64"),
-      });
-      await assert.rejects(s.asset(tb, asset.id));
       await assert.rejects(
-        s.upload(ta, { kind: "logo", width: 801, height: 480, data: "AA==" }),
+        pins.save(tenant, id, { hook: 2, room: "105", pin: "875621" }),
+        /Habitación ya/,
       );
-      const id = randomUUID(),
-        lookup = {
-          schemaVersion: 1,
-          operationId: id,
-          language: "de",
-          method: "surname",
-          value: "Müller",
-        };
-      const l = await s.lookup(a, lookup);
-      assert.equal(l.status, "CHALLENGE");
-      assert.equal(l.rooms, undefined);
-      assert.equal((await s.lookup(a, lookup)).operationId, id);
-      await assert.rejects(s.lookup(b, lookup));
-      await assert.rejects(s.start(a, { operationId: id }));
-      for (let i = 0; i < 3; i++)
+      await assert.rejects(pins.list(other, id), (e) => e.statusCode === 404);
+      for (const d of [
+        { id: id2, tenantId: tenant, tokenHash: "fixture" },
+        { id: foreign, tenantId: other, tokenHash: "fixture" },
+      ])
         assert.equal(
-          (await s.verify(a, { operationId: id, proof: "wrong" })).status,
+          (await pins.validate(d, { operationId: randomUUID(), pin: "5932" }))
+            .status,
           "DENIED",
         );
-      await assert.rejects(s.verify(a, { operationId: id, proof: "123456" }));
-      assert.equal(verifyCalls, 3);
-      const id2 = randomUUID();
-      await s.lookup(a, { ...lookup, operationId: id2 });
+      for (let i = 0; i < 5; i++)
+        assert.equal(
+          (
+            await pins.validate(device, {
+              operationId: randomUUID(),
+              pin: "0000",
+            })
+          ).status,
+          "DENIED",
+        );
       assert.equal(
-        (await s.verify(a, { operationId: id2, proof: "123456" })).status,
-        "AUTHORIZED",
+        (
+          await createPinService(db).validate(device, {
+            operationId: randomUUID(),
+            pin: "5932",
+          })
+        ).status,
+        "LOCKED",
       );
-      const starts = await Promise.all([
-        s.start(a, { operationId: id2 }),
-        s.start(a, { operationId: id2 }),
+      await db.devicePinGuard.update({
+        where: { deviceId: id },
+        data: { lockedUntil: new Date(0), failures: 0 },
+      });
+      const c = {
+        ...defaultOutbound(),
+        endpoint: "https://hotel.example/checkin",
+        enabled: true,
+        contractConfirmed: true,
+      };
+      await saveDeviceIntegration({ prisma: db }, tenant, id, {
+        outbound: c,
+        headers: [{ name: "Authorization", value: "Bearer backend-secret" }],
+      });
+      assert.equal(
+        JSON.stringify(
+          await getDeviceIntegration({ prisma: db }, tenant, id),
+        ).includes("backend-secret"),
+        false,
+      );
+      const attempts = await Promise.all([
+        pins.validate(device, { operationId: randomUUID(), pin: "5932" }),
+        pins.validate(device, { operationId: randomUUID(), pin: "5932" }),
       ]);
-      assert.equal(starts[0].status, "RELEASING");
-      assert.equal(await db.hookboxClaim.count({ where: { tenantId: ta } }), 2);
+      assert.equal(attempts.filter((x) => x.status === "AUTHORIZED").length, 1);
+      const op = attempts.find((x) => x.status === "AUTHORIZED"),
+        operationId = op.operationId;
+      assert.deepEqual(op.rooms, [{ room: "105", hook: 1 }]);
+      assert.equal(
+        await db.deviceOutboundEvent.count({ where: { deviceId: id } }),
+        0,
+      );
+      await s.start(device, { operationId });
+      assert.equal(
+        await db.deviceOutboundEvent.count({ where: { deviceId: id } }),
+        0,
+      );
+      const result = {
+        operationId,
+        index: 0,
+        result: "ELECTRICAL_ACTIVATION",
+        physicallyConfirmed: false,
+        mock: false,
+      };
+      await s.result(device, result);
+      await s.result(device, result);
+      await s.finish(device, { operationId });
+      assert.equal(
+        await db.deviceOutboundEvent.count({ where: { deviceId: id } }),
+        1,
+      );
+      const eventId = "checkin:" + operationId;
+      assert.equal(
+        (await db.devicePinHook.findFirst({ where: { deviceId: id } })).state,
+        "DELIVERED",
+      );
+      assert.equal(
+        (
+          await pins.validate(device, {
+            operationId: randomUUID(),
+            pin: "5932",
+          })
+        ).status,
+        "DENIED",
+      );
+      let sends = 0;
+      const send = async (config, payload, secrets, event) => {
+        sends++;
+        assert.equal(event, eventId);
+        assert.equal(payload.key, "105");
+        assert.equal(secrets.authorization, "Bearer backend-secret");
+        return sends === 1 ? 503 : 200;
+      };
+      await createOutboundWorker(db, send)();
+      let e = await db.deviceOutboundEvent.findUnique({
+        where: { id: eventId },
+      });
+      assert.equal(e.state, "RETRY");
+      assert.equal(e.httpAcceptedAt, null);
+      await db.deviceOutboundEvent.update({
+        where: { id: eventId },
+        data: { nextAttemptAt: new Date(0) },
+      });
+      await createOutboundWorker(db, send)();
+      e = await db.deviceOutboundEvent.findUnique({ where: { id: eventId } });
+      assert.equal(e.state, "HTTP_ACCEPTED");
+      assert.ok(e.httpAcceptedAt);
+      assert.equal(e.processedAt, null);
+      assert.equal(e.attempts, 2);
+      await createOutboundWorker(db, send)();
+      assert.equal(sends, 2);
+      assert.equal(JSON.stringify(await retryOutbound({ prisma: db }, tenant, id, eventId)).includes("backend-secret"),false);
+      await createOutboundWorker(db, send)();
+      assert.equal(sends, 3);
+      assert.equal(
+        await db.deviceOutboundEvent.count({ where: { deviceId: id } }),
+        1,
+      );
+      await pins.rearm(
+        tenant,
+        id,
+        { hook: 1, reason: "Llave repuesta" },
+        "admin",
+      );
+      const power = await pins.validate(device, {
+        operationId: randomUUID(),
+        pin: "5932",
+      });
+      await s.start(device, { operationId: power.operationId });
+      assert.equal(
+        (
+          await createPinService(db).validate(device, {
+            operationId: randomUUID(),
+            pin: "5932",
+          })
+        ).status,
+        "DENIED",
+      );
       await assert.rejects(
-        s.result(a, {
-          operationId: id2,
-          index: 1,
+        pins.rearm(tenant, id, { hook: 1, reason: "Intervención" }, "admin"),
+        /Espera/,
+      );
+      await s.result(device, {
+        operationId: power.operationId,
+        index: 0,
+        result: "UNCERTAIN",
+        physicallyConfirmed: false,
+        mock: false,
+      });
+      await pins.rearm(
+        tenant,
+        id,
+        { hook: 1, reason: "Intervención verificada" },
+        "admin",
+      );
+      await assert.rejects(
+        s.result(device, {
+          operationId: power.operationId,
+          index: 0,
+          result: "ELECTRICAL_ACTIVATION",
+          physicallyConfirmed: false,
+          mock: false,
+        }),
+        /Conflicting/,
+      );
+      // All four driver boards are reachable through the preserved mapping, without hardware.
+      for (const hook of [9, 17, 25]) {
+        await pins.save(tenant, id, {
+          hook,
+          room: String(100 + hook),
+          pin: String(8000 + hook),
+        });
+        const p = await pins.validate(device, {
+          operationId: randomUUID(),
+          pin: String(8000 + hook),
+          mock: true,
+        });
+        assert.equal(p.rooms[0].hook, hook);
+        await s.start(device, { operationId: p.operationId });
+        await s.result(device, {
+          operationId: p.operationId,
+          index: 0,
           result: "MOCK_ACTIVATION",
           physicallyConfirmed: false,
           mock: true,
-        }),
-        { statusCode: 409 },
-      );
-      await assert.rejects(s.finish(a, { operationId: id2 }));
-      const report = {
-        operationId: id2,
-        index: 0,
-        result: "MOCK_ACTIVATION",
-        physicallyConfirmed: false,
-        mock: true,
-      };
-      await s.result(a, report);
-      await s.result(a, report);
-      await assert.rejects(s.result(a, { ...report, result: "UNCERTAIN" }), {
-        statusCode: 409,
-      });
-      await s.result(a, { ...report, index: 1, result: "UNCERTAIN" });
-      await assert.rejects(s.finish(a, { operationId: id2 }));
+        });
+        await s.finish(device, { operationId: p.operationId });
+      }
       assert.equal(
-        (await createHookboxService(db, provider).status(a, id2)).status,
-        "UNCERTAIN",
+        await db.deviceOutboundEvent.count({ where: { deviceId: id } }),
+        1,
       );
-      // A reboot or an expired session does not release durable claims.
-      await db.hookboxOperation.update({
-        where: { id: id2 },
-        data: { expiresAt: new Date(0) },
-      });
-      const id3 = randomUUID();
-      await s.lookup(a, { ...lookup, operationId: id3 });
-      await s.verify(a, { operationId: id3, proof: "123456" });
-      await assert.rejects(s.start(a, { operationId: id3 }), {
-        statusCode: 409,
-      });
-      await db.device.update({ where: { id: da }, data: { tenantId: tb } });
-      await assert.rejects(s.sync(a), { statusCode: 403 });
+      await assert.rejects(s.lookup(device, {}), (e) => e.statusCode === 410);
+      await assert.rejects(s.verify(device, {}), (e) => e.statusCode === 410);
     } finally {
+      await db.deviceOutboundEvent.deleteMany({
+        where: { tenantId: { in: [tenant, other] } },
+      });
       await db.hookboxClaim.deleteMany({
-        where: { tenantId: { in: [ta, tb] } },
+        where: { tenantId: { in: [tenant, other] } },
       });
       await db.hookboxOperation.deleteMany({
-        where: { tenantId: { in: [ta, tb] } },
+        where: { tenantId: { in: [tenant, other] } },
       });
-      await db.deviceEvent.deleteMany({
-        where: { deviceId: { in: [da, dbid] } },
-      });
-      await db.device.deleteMany({ where: { id: { in: [da, dbid] } } });
-      await db.hookboxDesign.deleteMany({
-        where: { tenantId: { in: [ta, tb] } },
-      });
-      await db.hookboxAsset.deleteMany({
-        where: { tenantId: { in: [ta, tb] } },
-      });
-      await db.hookboxHotel.deleteMany({
-        where: { tenantId: { in: [ta, tb] } },
-      });
-      await db.tenant.deleteMany({ where: { id: { in: [ta, tb] } } });
+      await db.device.deleteMany({ where: { id: { in: [id, id2, foreign] } } });
+      await db.tenant.deleteMany({ where: { id: { in: [tenant, other] } } });
       await db.$disconnect();
     }
   },

@@ -1,3 +1,11 @@
+import { createPinService } from "../hookbox/pins.js";
+import {
+  getDeviceIntegration,
+  saveDeviceIntegration,
+  retryOutbound,
+  buildOutboundPreview,
+  rotateDeviceWebhookSecret,
+} from "../hookbox/integration.js";
 import { MODULE_REGISTRY } from "../moduleRegistry.js";
 import {
   createTenant,
@@ -48,7 +56,9 @@ async function buildTenantAdminSummary(database, tenant, memberships, users) {
       membership,
     ),
     user: (() => {
-      const user = safeArray(users).find((candidate) => candidate.id === membership.userId) || {
+      const user = safeArray(users).find(
+        (candidate) => candidate.id === membership.userId,
+      ) || {
         id: membership.userId,
         email: "",
         displayName: "",
@@ -67,7 +77,9 @@ async function buildTenantAdminSummary(database, tenant, memberships, users) {
     settingsSummary: {
       reservationSource: settings?.reservations?.source || "demo",
       frigateBaseUrl: settings?.frigate?.baseUrl || "",
-      stripeConnected: Boolean(settings?.stripe?.secretKey && settings?.stripe?.webhookSecret),
+      stripeConnected: Boolean(
+        settings?.stripe?.secretKey && settings?.stripe?.webhookSecret,
+      ),
       telegramEnabled: Boolean(settings?.notifications?.telegram?.enabled),
       rooms: safeArray(rooms).length,
       keys: safeArray(keys).length,
@@ -89,6 +101,104 @@ export async function handleAdminRoute({ request, pathname, body, context }) {
   const { database, session } = context;
   requirePlatformAdmin(session);
 
+  const hookMatch = pathname.match(
+    /^\/api\/admin\/devices\/([a-f0-9-]{36})\/hooks(?:\/(rearm))?$/,
+  );
+  if (hookMatch) {
+    if (
+      request.method !== "GET" &&
+      (!process.env.APP_ORIGIN ||
+        request.headers.origin !== process.env.APP_ORIGIN)
+    )
+      throw Object.assign(Error("Origin not allowed"), { statusCode: 403 });
+    const d = await database.prisma.device.findUnique({
+      where: { id: hookMatch[1] },
+    });
+    if (!d?.tenantId)
+      throw Object.assign(Error("Device not found"), { statusCode: 404 });
+    const pins = createPinService(database.prisma);
+    if (request.method === "GET")
+      return { status: 200, payload: await pins.list(d.tenantId, d.id) };
+    if (request.method === "POST")
+      return {
+        status: 200,
+        payload: await pins[hookMatch[2] ? "rearm" : "save"](
+          d.tenantId,
+          d.id,
+          body,
+          session.user.id,
+        ),
+      };
+    return { status: 405, payload: { error: "Method not allowed" } };
+  }
+  const deviceIntegration = pathname.match(
+    /^\/api\/admin\/devices\/([a-f0-9-]{36})\/integration(\/(?:rotate-secret|simulate|retry))?$/,
+  );
+  if (deviceIntegration) {
+    if (
+      request.method !== "GET" &&
+      (!process.env.APP_ORIGIN ||
+        request.headers.origin !== process.env.APP_ORIGIN)
+    )
+      throw Object.assign(Error("Origin not allowed"), { statusCode: 403 });
+    const id = deviceIntegration[1];
+    const device = await database.prisma.device.findUnique({
+      where: { id },
+      select: { tenantId: true, hardwareModel: true },
+    });
+    if (
+      !device?.tenantId ||
+      !["CROWPANEL_7_V3", "ESP32_DEVKIT_CHECKOUT_V1"].includes(
+        device.hardwareModel,
+      )
+    ) {
+      throw Object.assign(new Error("HOOKBOX device not found."), {
+        statusCode: 404,
+      });
+    }
+    if (request.method === "GET" && !deviceIntegration[2])
+      return {
+        status: 200,
+        payload: await getDeviceIntegration(database, device.tenantId, id),
+      };
+    if (request.method === "POST" && !deviceIntegration[2])
+      return {
+        status: 200,
+        payload: await saveDeviceIntegration(
+          database,
+          device.tenantId,
+          id,
+          body,
+        ),
+      };
+    if (request.method === "POST" && deviceIntegration[2] === "/simulate") {
+      const c = await getDeviceIntegration(database, device.tenantId, id);
+      return {
+        status: 200,
+        payload: {
+          simulated: true,
+          preview: buildOutboundPreview(body.outbound || c.outbound),
+        },
+      };
+    }
+    if (request.method === "POST" && deviceIntegration[2] === "/retry")
+      return {
+        status: 200,
+        payload: await retryOutbound(
+          database,
+          device.tenantId,
+          id,
+          body.eventId,
+        ),
+      };
+    if (request.method === "POST" && deviceIntegration[2])
+      return {
+        status: 200,
+        payload: await rotateDeviceWebhookSecret(database, device.tenantId, id),
+      };
+    return { status: 405, payload: { error: "Method not allowed" } };
+  }
+
   if (request.method === "GET" && pathname === "/api/admin/tenants") {
     const [tenants, memberships, users] = await Promise.all([
       database.listRecords("tenants"),
@@ -98,7 +208,9 @@ export async function handleAdminRoute({ request, pathname, body, context }) {
 
     const payload = [];
     for (const tenant of safeArray(tenants)) {
-      payload.push(await buildTenantAdminSummary(database, tenant, memberships, users));
+      payload.push(
+        await buildTenantAdminSummary(database, tenant, memberships, users),
+      );
     }
 
     return { status: 200, payload };
@@ -129,7 +241,9 @@ export async function handleAdminRoute({ request, pathname, body, context }) {
       payload: {
         tenant,
         users,
-        memberships: memberships.filter((membership) => membership.tenantId === tenantId),
+        memberships: memberships.filter(
+          (membership) => membership.tenantId === tenantId,
+        ),
         modules,
         moduleRegistry: MODULE_REGISTRY,
       },
@@ -138,7 +252,10 @@ export async function handleAdminRoute({ request, pathname, body, context }) {
 
   if (request.method === "PATCH" && tenantMatch) {
     const tenantId = decodeURIComponent(tenantMatch[1]);
-    return { status: 200, payload: await updateTenant(database, tenantId, body) };
+    return {
+      status: 200,
+      payload: await updateTenant(database, tenantId, body),
+    };
   }
 
   if (request.method === "DELETE" && tenantMatch) {
@@ -166,7 +283,9 @@ export async function handleAdminRoute({ request, pathname, body, context }) {
     };
   }
 
-  const invitationCreateMatch = pathname.match(/^\/api\/admin\/tenants\/([^/]+)\/invitations$/);
+  const invitationCreateMatch = pathname.match(
+    /^\/api\/admin\/tenants\/([^/]+)\/invitations$/,
+  );
   if (request.method === "POST" && invitationCreateMatch) {
     return {
       status: 201,
@@ -269,7 +388,9 @@ export async function handleAdminRoute({ request, pathname, body, context }) {
     };
   }
 
-  const moduleMatch = pathname.match(/^\/api\/admin\/tenants\/([^/]+)\/modules\/([^/]+)$/);
+  const moduleMatch = pathname.match(
+    /^\/api\/admin\/tenants\/([^/]+)\/modules\/([^/]+)$/,
+  );
   if (request.method === "PATCH" && moduleMatch) {
     return {
       status: 200,
