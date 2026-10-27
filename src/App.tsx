@@ -13,6 +13,7 @@ import { PublicCheckoutPage } from "./modules/checkout/PublicCheckoutPage";
 import { DashboardPage } from "./modules/dashboard/DashboardPage";
 import { ParkingPage } from "./modules/parking/ParkingPage";
 import { ProfilePage } from "./modules/profile/ProfilePage";
+import { OperationsPage } from "./modules/dashboard/OperationsPage";
 import { SettingsPage } from "./modules/settings/SettingsPage";
 import { TenantUsersPage } from "./modules/settings/TenantUsersPage";
 import type { ModuleId } from "./types/modules";
@@ -20,6 +21,7 @@ import type { ModuleId } from "./types/modules";
 function routeFromPath(): AppRoute {
   const path = window.location.pathname.replace(/^\/t\/[^/]+/, "") || "/";
 
+  if (path === "/operations") return "operations";
   if (path.startsWith("/parking")) {
     return "parking";
   }
@@ -176,6 +178,7 @@ function PrivateApp() {
         );
 
   const page =
+    visibleRoute === "operations" ? <OperationsPage enabledModules={enabledModules} /> :
     visibleRoute === "hotel-devices" && canConfigureTenant ? (<HookboxDevicesPage key={activeTenantId} />) :
     visibleRoute === "hookbox" && canConfigureTenant ? (<HookboxDesignPage key={activeTenantId+window.location.pathname} deviceId={window.location.pathname.match(/\/devices\/([a-f0-9-]+)\/screen/)?.[1]||new URLSearchParams(window.location.search).get("deviceId")||undefined} />) :
     visibleRoute === "parking" ? (
@@ -184,10 +187,8 @@ function PrivateApp() {
       <ProfilePage />
     ) : visibleRoute === "checkout" ? (
       <CheckoutPage />
-    ) : visibleRoute === "devices" && session.isPlatformAdmin ? (
-      <DevicesFirmwarePage />
-    ) : visibleRoute === "admin" && session.isPlatformAdmin ? (
-      <AdminPage />
+    ) : (visibleRoute === "devices" || visibleRoute === "admin") && session.isPlatformAdmin ? (
+      <><nav className="hb-admin-tabs" aria-label="Admin"><button className={visibleRoute==="admin"?"active":""} onClick={()=>navigate("admin")}>Hotels / Users</button><button className={visibleRoute==="devices"?"active":""} onClick={()=>navigate("devices")}>Devices / Firmware</button></nav>{visibleRoute==="devices"?<DevicesFirmwarePage />:<AdminPage />}</>
     ) : visibleRoute === "integrations" || visibleRoute === "settings" ? (
       <SettingsPage />
     ) : visibleRoute === "users" ? (

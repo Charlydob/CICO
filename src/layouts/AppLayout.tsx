@@ -2,7 +2,6 @@ import {
   Building2,
   CarFront,
   ClipboardCheck,
-  ArrowLeft,
   Home,
   LogOut,
   MoreHorizontal,
@@ -20,6 +19,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useI18n, type TranslationKey } from "../i18n";
 
 export type AppRoute =
+  | "operations"
   | "dashboard"
   | "housekeeping"
   | "parking"
@@ -42,6 +42,7 @@ interface AppLayoutProps {
 }
 
 const routeIcons = {
+  operations: ClipboardCheck,
   dashboard: Home,
   housekeeping: Sparkles,
   parking: CarFront,
@@ -78,7 +79,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
       <button
         key={target}
         type="button"
-        className={`${route === target ? "active" : ""} ${className}`.trim()}
+        className={`${(route === target || (target === "admin" && route === "devices")) ? "active" : ""} ${className}`.trim()}
         onClick={() => onRouteChange(target)}
       >
         <Icon size={17} />
@@ -112,7 +113,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
 
   const mobileNav = (() => {
     if (!activeTenantId) {
-      return session?.isPlatformAdmin ? [{ route: "admin" as AppRoute, label: t("admin") }, { route: "devices" as AppRoute, label: "Devices / Firmware" }] : [];
+      return session?.isPlatformAdmin ? [{ route: "admin" as AppRoute, label: t("admin") }] : [];
     }
 
     if (activeTenantRole === "staff") {
@@ -125,7 +126,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
     if (activeTenantRole === "manager") {
       return [
         { route: "dashboard" as AppRoute, label: t("home") },
-        { route: enabledModules.checkout ? "checkout" as AppRoute : "dashboard" as AppRoute, label: t("operations") },
+        { route: "operations" as AppRoute, label: t("operations") },
         { route: "profile" as AppRoute, label: t("profile") },
       ];
     }
@@ -133,7 +134,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
     if (activeTenantRole === "tenant_admin") {
       return [
         { route: "dashboard" as AppRoute, label: t("home") },
-        { route: enabledModules.checkout ? "checkout" as AppRoute : "dashboard" as AppRoute, label: t("operations") },
+        { route: "operations" as AppRoute, label: t("operations") },
         { route: "users" as AppRoute, label: t("team") },
         { route: "settings" as AppRoute, label: t("more"), Icon: MoreHorizontal },
       ];
@@ -141,7 +142,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
 
     return [
       { route: "dashboard" as AppRoute, label: t("home") },
-      { route: enabledModules.checkout ? "checkout" as AppRoute : "dashboard" as AppRoute, label: t("operations") },
+      { route: "operations" as AppRoute, label: t("operations") },
       { route: "users" as AppRoute, label: t("team") },
       { route: "admin" as AppRoute, label: t("admin") },
       { route: "profile" as AppRoute, label: t("profile") },
@@ -153,14 +154,10 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
       <header className="mobile-topbar">
         <div>
           <strong>{displayTenantName}</strong>
-          {session?.isPlatformAdmin && activeTenantId && (
-            <button type="button" className="support-chip" onClick={() => void handleTenantChange("")}>
-              {t("supportMode")} - {t("exit")}
-            </button>
-          )}
+
         </div>
         <div className="mobile-topbar-actions">
-          {canConfigureTenant && <button type="button" onClick={() => onRouteChange("hotel-devices")}>Dispositivos</button>}
+
           {session && session.tenants.length > 1 && (
             <select
               aria-label="Hotel"
@@ -208,7 +205,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
           {activeTenantId && (
             <>
               {navButton("dashboard", t("dashboard"))}
-              <span>{t("operations")}</span>
+              {navButton("operations", t("operations"))}
               {enabled.some((module) => module.id === "parking") && navButton("parking", t("parking"))}
               {enabled.some((module) => module.id === "checkout") && navButton("checkout", t("checkout"))}
               {canConfigureTenant && (
@@ -230,7 +227,7 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
             <>
               <span>{t("admin")}</span>
               {navButton("admin", "Platform Admin")}
-              {navButton("devices", "Devices / Firmware")}
+
             </>
           )}
         </nav>
@@ -240,15 +237,6 @@ export function AppLayout({ route, onRouteChange, enabledModules, children }: Ap
         </button>
       </aside>
       <main className="platform-main">
-        {session?.isPlatformAdmin && activeTenantId && (
-          <div className="support-mode-banner desktop-only-support">
-            <strong>{t("supportMode")} - {activeTenant?.name || activeTenantId}</strong>
-            <button type="button" onClick={() => void handleTenantChange("")}>
-              <ArrowLeft size={15} />
-              {t("backToAdmin")}
-            </button>
-          </div>
-        )}
         {children}
       </main>
       {mobileNav.length > 0 && (

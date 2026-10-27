@@ -56,14 +56,28 @@ await page.goto(
   (process.env.HOOKBOX_TEST_ORIGIN || "http://127.0.0.1:4321") +
     "/tests/hookbox-editor.html",
 );
-await page.getByLabel("Nombre del hotel").waitFor();
+await page.getByLabel("Nombre del hotel").waitFor({ state: "attached" });
 await page.evaluate(() => document.fonts.ready);
+await page.getByRole("button", { name: "Editar", exact: true }).click();
 await page.getByLabel("Nombre del hotel").fill("Hotel Prueba");
+await page.locator("canvas").scrollIntoViewIfNeeded();
+const editBounds = await page.locator("canvas").boundingBox();
+await page.mouse.click(
+  editBounds.x + (120 * editBounds.width) / 800,
+  editBounds.y + (120 * editBounds.height) / 480,
+);
+await page.getByLabel("Texto seleccionado", { exact: true }).fill("Guten Tag");
+await page.getByLabel("Color del elemento", { exact: true }).fill("#c5a575");
+assert.equal(await page.locator(".hb-selected").count(), 1);
+
 await page
   .getByRole("button", { name: "Guardar borrador", exact: true })
   .click();
 await page.getByText("Borrador guardado", { exact: true }).waitFor();
 assert.equal(draft.hotelName, "Hotel Prueba");
+assert.equal(draft.texts.de.welcome, "Guten Tag");
+assert.equal(draft.colors.primary, "#c5a575");
+await page.getByRole("button", { name: "Vista previa", exact: true }).click();
 const canvas = page.locator("canvas");
 const pixels = () => canvas.evaluate((c) => c.toDataURL());
 assert.equal(await page.getByLabel("Plantilla").inputValue(), "guest-portal");
@@ -75,7 +89,7 @@ for (const screen of ["Búsqueda", "Habitación", "Error", "Entrega", "Final"]) 
 await page
   .getByLabel("Configuración de pantalla", { exact: true })
   .selectOption("panel");
-await page.getByLabel("Nombre del hotel").waitFor();
+await page.getByLabel("Nombre del hotel").waitFor({ state: "attached" });
 await page
   .getByLabel("Configuración de pantalla", { exact: true })
   .selectOption("");
@@ -103,6 +117,7 @@ await page
   .getByText("Diseño publicado; esperando confirmación de los dispositivos")
   .waitFor();
 assert.equal(published, 1);
+await page.getByRole("button", { name: "Editar", exact: true }).click();
 await page.getByLabel("Nombre del hotel").fill("Guest House Steinbock");
 await page
   .getByRole("button", { name: "Aplicar identidad Steinbock", exact: true })
@@ -113,6 +128,7 @@ await page
     { exact: true },
   )
   .waitFor();
+await page.getByRole("button", { name: "Vista previa", exact: true }).click();
 await canvas.scrollIntoViewIfNeeded();
 const bounds = await canvas.boundingBox();
 await page.mouse.move(
@@ -151,4 +167,24 @@ assert.deepEqual(errors, []);
 console.log(
   "EDITOR_BROWSER_PASS: editing, save, publication, touch form, keyboard, language, canvas render",
 );
+await page.getByRole("button", { name: "Editar", exact: true }).click();
+await canvas.scrollIntoViewIfNeeded();
+const selectedBounds = await canvas.boundingBox();
+await page.mouse.click(
+  selectedBounds.x + (120 * selectedBounds.width) / 800,
+  selectedBounds.y + (120 * selectedBounds.height) / 480,
+);
+await page.screenshot({ path: path.join(output, "editor-contextual.png") });
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(500);
+await canvas.scrollIntoViewIfNeeded();
+assert.ok(
+  await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+  ),
+  "mobile editor has no horizontal overflow",
+);
+await page.screenshot({
+  path: path.join(output, "editor-contextual-mobile.png"),
+});
 await browser.close();

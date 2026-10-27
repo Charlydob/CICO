@@ -6,6 +6,7 @@ const browser = await chromium.launch({ headless: true }),
   tenant = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   base = "/t/test-hotel/devices";
+let platform = false;
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 const device = {
@@ -29,7 +30,7 @@ await page.route("**/api/**", async (route) => {
       ],
       memberships: [{ tenantId: tenant, userId: "user", role: "tenant_admin" }],
       activeTenantId: tenant,
-      isPlatformAdmin: false,
+      isPlatformAdmin: platform,
       modules: [],
       modulesByTenant: { [tenant]: {} },
     };
@@ -41,7 +42,13 @@ await page.route("**/api/**", async (route) => {
       devices: [device],
       versions: [],
     };
-  else if (path === "/api/hookbox/diagnostics") body = [];
+  else if (
+    path === "/api/hookbox/diagnostics" ||
+    path === "/api/admin/devices" ||
+    path === "/api/admin/firmware-releases" ||
+    path === "/api/admin/tenants"
+  )
+    body = [];
   await route.fulfill({ json: body });
 });
 await page.goto("http://127.0.0.1:4321" + base);
@@ -54,7 +61,7 @@ await page.getByRole("link", { name: "Ver dispositivo" }).click();
 await page
   .getByRole("link", { name: "Personalizar pantalla", exact: true })
   .click();
-await page.getByLabel("Nombre del hotel").waitFor();
+await page.getByLabel("Nombre del hotel").waitFor({ state: "attached" });
 assert.equal(
   await page.getByLabel("Nombre del hotel").inputValue(),
   "Test Hotel",
@@ -68,6 +75,46 @@ await page.getByRole("link", { name: "Volver al dispositivo" }).click();
 await page
   .getByRole("link", { name: "Personalizar pantalla", exact: true })
   .waitFor();
+await page.setViewportSize({ width: 390, height: 844 });
+await page.locator(".bottom-nav button").nth(1).click();
+await page.waitForURL("**/operations");
+assert.equal(await page.locator(".bottom-nav button.active").count(), 1);
+assert.equal(
+  await page.locator(".bottom-nav button").first().getAttribute("class"),
+  "",
+);
+assert.equal(
+  await page
+    .getByText("No hay módulos operativos activados para este hotel.", {
+      exact: true,
+    })
+    .count(),
+  1,
+);
+platform = true;
+await page.goto("http://127.0.0.1:4321/admin/devices");
+await page.getByRole("navigation", { name: "Admin", exact: true }).waitFor();
+assert.equal(
+  await page
+    .locator(".mobile-topbar")
+    .getByText(/Support Mode/i)
+    .count(),
+  0,
+);
+assert.equal(
+  await page
+    .locator(".mobile-topbar-actions")
+    .getByRole("button", { name: /Devices|Dispositivos/ })
+    .count(),
+  0,
+);
+assert.equal(
+  await page
+    .locator(".sidebar-nav")
+    .getByRole("button", { name: "Devices / Firmware", exact: true })
+    .count(),
+  0,
+);
 assert.deepEqual(errors, []);
 console.log("TENANT_ADMIN_DEVICE_DETAIL_EDITOR_PASS");
 await browser.close();
