@@ -671,6 +671,40 @@ export function createHookboxService(prisma, provider) {
         return response(await save(tx, op, s));
       });
     },
+    // An authenticated hotel webhook can authorize an existing guest-initiated
+    // operation. It NEVER starts the physical release or creates an operation.
+    async authorizeFromWebhook(device, input) {
+      return transaction(device.tenantId, async (tx) => {
+        await owned(tx, device);
+        const op = await operation(tx, device, input.request_id);
+        const s = op.state;
+        if (s.status === "AUTHORIZED") {
+          if (s.reservationId !== input.stay_unit_id ||
+              !s.rooms.some((r) => r.room === input.room))
+            fail("Authorization does not match previous webhook", 409);
+          return { ...response(op), duplicate: true };
+        }
+        if (!["CHALLENGE", "INSUFFICIENT"].includes(s.status))
+          fail("No pending check-in waiting for authorization", 409);
+        const publication = await published(tx, device);
+        if (!publication) fail("Publish the room mapping before check-in", 409);
+        const mapping = validateMapping(
+          publication.manifest.roomMapping ||
+          (await hotel(tx, device.tenantId)).mapping,
+        );
+        const selected = mapping.find((entry) => entry.room === input.room);
+        if (!selected) fail("Authorized room is not mapped to a hook", 409);
+        s.designVersion = publication.id;
+        s.rooms = [selected];
+        s.reservationId = input.stay_unit_id;
+        s.status = "AUTHORIZED";
+        s.mock = false;
+        await event(tx, device, "hookbox.hotel_webhook_authorized", {
+          operationId: op.id, room: input.room,
+        });
+        return { ...response(await save(tx, op, s)), duplicate: false };
+      });
+    },
     async start(device, input) {
       return transaction(device.tenantId, async (tx) => {
         await owned(tx, device);
