@@ -958,7 +958,7 @@ export function createOtaService(
     },
     async ingestEvents(device, body) {
       const events = deviceEvents(body);
-      const webhookSettings = device.tenantId
+      const webhookSettings = device.tenantId && database && typeof database.getRecord === "function"
         ? await getCheckoutWebhookSettings(database, device.tenantId)
         : null;
       const registeredCheckouts = await prisma.$transaction(async(tx)=>{
