@@ -1,6 +1,7 @@
 import { lookup } from "node:dns";
 import { isIP } from "node:net";
 import { request as httpsRequest } from "node:https";
+import { connect as tlsConnect } from "node:tls";
 import { getTenantSettings } from "./tenantSettingsService.js";
 
 export const STEINBOCK_CHECKOUT_ENDPOINT = "https://checkin.gasthaus-steinbock.ch/checkoutguest.php";
@@ -148,6 +149,50 @@ function publicIp(address, family) {
   }
   const ip = address.toLowerCase();
   return family === 6 && /^[23][0-9a-f]{0,3}:/.test(ip) && !ip.startsWith("2001:db8:");
+}
+
+// Perform DNS resolution and an authenticated TLS handshake only.
+// IMPORTANT: no HTTP request, no POST and no checkout data is transmitted.
+export async function probeCheckoutWebhookConnection(endpointUrl, {
+  resolveDns = lookup,
+  connectTls = tlsConnect,
+} = {}) {
+  const url = new URL(endpointUrl);
+  if (url.protocol !== "https:" || url.port || url.username || url.password) {
+    throw new Error("The test requires a public HTTPS endpoint.");
+  }
+  const hostname = url.hostname.toLowerCase();
+  assertPublicHostname(hostname);
+  const records = await new Promise((resolve, reject) =>
+    resolveDns(hostname, { all: true }, (error, addresses) =>
+      error ? reject(error) : resolve(addresses)
+    )
+  );
+  const target = records.find((record) => publicIp(record.address, record.family));
+  if (!target) throw new Error("The endpoint does not resolve to a public IP.");
+  return new Promise((resolve, reject) => {
+    const socket = connectTls({
+      host: target.address, port: 443, servername: hostname,
+      rejectUnauthorized: true, timeout: 8000,
+    });
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(error);
+    };
+    socket.once("secureConnect", () => {
+      if (settled) return;
+      if (!socket.authorized) return fail(new Error("Invalid TLS certificate."));
+      settled = true;
+      const protocol = socket.getProtocol();
+      socket.end();
+      resolve({ connected: true, dns: true, tls: true, protocol });
+    });
+    socket.once("timeout", () => fail(new Error("TLS connection timed out.")));
+    socket.once("error", fail);
+  });
 }
 
 export async function sendCheckoutWebhook(delivery) {
