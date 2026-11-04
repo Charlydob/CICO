@@ -45,7 +45,7 @@ import {
   updateTenantSettings,
 } from "./services/tenantSettingsService.js";
 import { sendTestCheckoutNotification } from "./services/notificationService.js";
-import { getCheckoutWebhookSettings, publicCheckoutWebhookSettings, validateCheckoutWebhookSettings, renderCheckoutWebhookPayload, processDueCheckoutWebhooks } from "./services/checkoutWebhookService.js";
+import { getCheckoutWebhookSettings, publicCheckoutWebhookSettings, validateCheckoutWebhookSettings, renderCheckoutWebhookPayload, processDueCheckoutWebhooks, probeCheckoutWebhookConnection } from "./services/checkoutWebhookService.js";
 import { processDueScheduledPushes } from "./services/webPushService.js";
 import {
   connectTelegramChat,
@@ -977,6 +977,17 @@ const server = createServer(async (request, response) => {
         key: "105", room: "105", uid: "00000000", deviceId: "checkoutbox-demo",
         eventId: "preview", timestamp: "2026-10-29T08:57:00.000Z",
       }) });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/settings/checkout-box-webhook/connection-test") {
+      const context = await getProtectedContext(request);
+      const tenantId = requireTenant(context.session);
+      requireTenantAdmin(context.session, tenantId);
+      const current = await getCheckoutWebhookSettings(database, tenantId);
+      const candidate = validateCheckoutWebhookSettings(await readJsonBody(request), current);
+      // DNS + TLS only; the hotel's PHP endpoint receives no HTTP request.
+      sendJson(response, 200, await probeCheckoutWebhookConnection(candidate.url));
       return;
     }
 
