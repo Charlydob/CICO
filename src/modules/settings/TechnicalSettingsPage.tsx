@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Save } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { SettingsIntegrations } from "../../components/SettingsIntegrations";
+import { CheckoutBoxWebhookSettings } from "./CheckoutBoxWebhookSettings";
 import {
   getBackendStatus,
   getDashboardSettings,
@@ -231,6 +232,7 @@ export function TechnicalSettingsPage() {
           await refreshBackendState();
         }}
       />
+      {canEditHotel && <CheckoutBoxWebhookSettings key={activeTenantId || "no-hotel"} />}
       <section className="panel">
         <div className="section-heading">
           <h2>About</h2>
