@@ -83,15 +83,38 @@ jobs:
 
             git fetch --prune origin main
             PREVIOUS_SHA="$(git rev-parse HEAD)"
-            if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-              echo "::error::Production has modified tracked files. Refusing to overwrite."
+            # The production Compose file has site-specific local overrides.
+            # Preserve only that tracked modification; refuse every other dirty file.
+            LOCAL_CHANGED="$(git diff --name-only)"
+            LOCAL_STAGED="$(git diff --cached --name-only)"
+            if [ -n "$LOCAL_STAGED" ] || { [ -n "$LOCAL_CHANGED" ] && [ "$LOCAL_CHANGED" != "docker-compose.hetzner.yml" ]; }; then
+              echo "::error::Unexpected modified tracked files on production. Refusing to overwrite."
               echo "::group::Modified tracked paths (no file contents)"
               git diff --name-only
               git diff --cached --name-only
               echo "::endgroup::"
               exit 1
             fi
+
+            # This patch never leaves the server, never appears in logs and
+            # is re-applied on top of the target commit before using Compose.
+            COMPOSE_PATCH="$(mktemp)"
+            chmod 600 "$COMPOSE_PATCH"
+            trap 'rm -f "$COMPOSE_PATCH"' EXIT
+            if [ "$LOCAL_CHANGED" = "docker-compose.hetzner.yml" ]; then
+              git diff --binary -- docker-compose.hetzner.yml > "$COMPOSE_PATCH"
+            fi
             git reset --hard "$DEPLOY_SHA"
+            if [ -s "$COMPOSE_PATCH" ]; then
+              if ! git apply --check "$COMPOSE_PATCH"; then
+                echo "::error::Cannot safely reapply production Compose overrides; reverting code checkout."
+                git reset --hard "$PREVIOUS_SHA"
+                git apply "$COMPOSE_PATCH"
+                exit 1
+              fi
+              git apply "$COMPOSE_PATCH"
+              echo "Preserved server-specific Compose changes without logging contents"
+            fi
 
             ACTUAL_SHA="$(git rev-parse HEAD)"
             if [ "$ACTUAL_SHA" != "$DEPLOY_SHA" ]; then
