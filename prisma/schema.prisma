@@ -62,6 +62,7 @@ model Tenant {
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
   checkoutEvents  CheckoutEvent[]
+  checkoutWebhookDeliveries CheckoutWebhookDelivery[]
   detections      Detection[]
   invitations     Invitation[]
   keyIdentifiers  KeyIdentifier[]
@@ -257,10 +258,35 @@ model CheckoutEvent {
   tenant                   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   room                     Room            @relation(fields: [tenantId, roomId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction, map: "checkout_room_hotel_fk")
   occupancyCycle           OccupancyCycle? @relation(fields: [occupancyCycleId], references: [id], onDelete: SetNull)
+  checkoutWebhookDelivery  CheckoutWebhookDelivery?
 
   @@index([tenantId, timestamp])
   @@index([tenantId, roomId])
   @@map("checkout_events")
+}
+
+model CheckoutWebhookDelivery {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  checkoutEventId String   @unique @map("checkout_event_id") @db.Uuid
+  endpointUrl     String   @map("endpoint_url")
+  payload         Json
+  authHeaderName  String?  @map("auth_header_name")
+  authHeaderValue String?  @map("auth_header_value")
+  status          String   @default("PENDING")
+  attempts        Int      @default(0)
+  nextAttemptAt   DateTime @default(now()) @map("next_attempt_at")
+  lastHttpStatus  Int?     @map("last_http_status")
+  lastError       String?  @map("last_error")
+  sentAt          DateTime? @map("sent_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  checkoutEvent   CheckoutEvent @relation(fields: [checkoutEventId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, createdAt])
+  @@map("checkout_webhook_deliveries")
 }
 
 model OccupancyCycle {
