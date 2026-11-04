@@ -12,7 +12,7 @@ const MAX_ATTEMPTS = 8;
 export function defaultsForCheckoutWebhook(tenant) {
   const isSteinbock = /steinbock/i.test([tenant?.slug, tenant?.name].filter(Boolean).join(" "));
   return {
-    enabled: false, // Never send real guest events until the hotel explicitly enables it.
+    enabled: isSteinbock, // Steinbock explicitly requested this integration; other hotels opt in.
     url: isSteinbock ? STEINBOCK_CHECKOUT_ENDPOINT : "",
     jsonTemplate: DEFAULT_CHECKOUT_JSON_TEMPLATE,
     timezone: "Europe/Zurich",
