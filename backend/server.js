@@ -1539,8 +1539,11 @@ void pollFrigate().finally(scheduleNextPoll);
 
 const scheduledPushInterval = setInterval(() => {
   void pollScheduledPushes();
+}, Number(process.env.SCHEDULED_PUSH_POLL_INTERVAL_MS || 1500));
+scheduledPushInterval.unref?.();
+void pollScheduledPushes();
 
-// A DB-backed outbox survives backend restarts and retries temporary hotel API failures.
+// A durable outbox retries hotel API failures without interrupting RFID operation.
 let checkoutWebhookPollActive = false;
 async function pollCheckoutWebhooks() {
   if (checkoutWebhookPollActive) return;
@@ -1556,7 +1559,3 @@ async function pollCheckoutWebhooks() {
 const checkoutWebhookInterval = setInterval(() => { void pollCheckoutWebhooks(); }, 15_000);
 checkoutWebhookInterval.unref?.();
 void pollCheckoutWebhooks();
-
-}, Number(process.env.SCHEDULED_PUSH_POLL_INTERVAL_MS || 1500));
-scheduledPushInterval.unref?.();
-void pollScheduledPushes();
