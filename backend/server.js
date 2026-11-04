@@ -45,6 +45,7 @@ import {
   updateTenantSettings,
 } from "./services/tenantSettingsService.js";
 import { sendTestCheckoutNotification } from "./services/notificationService.js";
+import { getCheckoutWebhookSettings, publicCheckoutWebhookSettings, validateCheckoutWebhookSettings, renderCheckoutWebhookPayload, processDueCheckoutWebhooks } from "./services/checkoutWebhookService.js";
 import { processDueScheduledPushes } from "./services/webPushService.js";
 import {
   connectTelegramChat,
@@ -949,6 +950,50 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    // Checkout Box -> external hotel API (always scoped to the active tenant).
+    if (["GET", "PUT"].includes(request.method) && pathname === "/api/settings/checkout-box-webhook") {
+      const context = await getProtectedContext(request);
+      const tenantId = requireTenant(context.session);
+      requireTenantAdmin(context.session, tenantId);
+      const current = await getCheckoutWebhookSettings(database, tenantId);
+      if (request.method === "PUT") {
+        const next = validateCheckoutWebhookSettings(await readJsonBody(request), current);
+        await updateTenantSettings(database, tenantId, { integrations: { checkoutBoxWebhook: next } });
+        sendJson(response, 200, publicCheckoutWebhookSettings(next));
+      } else {
+        sendJson(response, 200, publicCheckoutWebhookSettings(current));
+      }
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/settings/checkout-box-webhook/preview") {
+      const context = await getProtectedContext(request);
+      const tenantId = requireTenant(context.session);
+      requireTenantAdmin(context.session, tenantId);
+      const current = await getCheckoutWebhookSettings(database, tenantId);
+      const next = validateCheckoutWebhookSettings(await readJsonBody(request), current);
+      // Preview only; never contact the hotel's real endpoint with sample data.
+      sendJson(response, 200, { payload: renderCheckoutWebhookPayload(next, {
+        key: "105", room: "105", uid: "00000000", deviceId: "checkoutbox-demo",
+        eventId: "preview", timestamp: "2026-10-29T08:57:00.000Z",
+      }) });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/api/settings/checkout-box-webhook/deliveries") {
+      const context = await getProtectedContext(request);
+      const tenantId = requireTenant(context.session);
+      requireTenantAdmin(context.session, tenantId);
+      const deliveries = await database.prisma.checkoutWebhookDelivery.findMany({
+        where: { tenantId }, orderBy: { createdAt: "desc" }, take: 20,
+        select: { id: true, checkoutEventId: true, status: true, attempts: true,
+          nextAttemptAt: true, lastHttpStatus: true, lastError: true,
+          sentAt: true, createdAt: true },
+      });
+      sendJson(response, 200, deliveries);
+      return;
+    }
+
     if (request.method === "POST" && pathname === "/api/settings/notifications") {
       const context = await getProtectedContext(request);
       const tenantId = requireTenant(context.session);
@@ -1494,6 +1539,24 @@ void pollFrigate().finally(scheduleNextPoll);
 
 const scheduledPushInterval = setInterval(() => {
   void pollScheduledPushes();
+
+// A DB-backed outbox survives backend restarts and retries temporary hotel API failures.
+let checkoutWebhookPollActive = false;
+async function pollCheckoutWebhooks() {
+  if (checkoutWebhookPollActive) return;
+  checkoutWebhookPollActive = true;
+  try {
+    await processDueCheckoutWebhooks(database.prisma);
+  } catch (error) {
+    console.warn("[CheckoutWebhook] Outbox poll failed:", error instanceof Error ? error.message : "unknown");
+  } finally {
+    checkoutWebhookPollActive = false;
+  }
+}
+const checkoutWebhookInterval = setInterval(() => { void pollCheckoutWebhooks(); }, 15_000);
+checkoutWebhookInterval.unref?.();
+void pollCheckoutWebhooks();
+
 }, Number(process.env.SCHEDULED_PUSH_POLL_INTERVAL_MS || 1500));
 scheduledPushInterval.unref?.();
 void pollScheduledPushes();
