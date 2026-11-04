@@ -84,7 +84,11 @@ jobs:
             git fetch --prune origin main
             PREVIOUS_SHA="$(git rev-parse HEAD)"
             if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-              echo "Production checkout has local changes; refusing to overwrite"
+              echo "::error::Production has modified tracked files. Refusing to overwrite."
+              echo "::group::Modified tracked paths (no file contents)"
+              git diff --name-only
+              git diff --cached --name-only
+              echo "::endgroup::"
               exit 1
             fi
             git reset --hard "$DEPLOY_SHA"
