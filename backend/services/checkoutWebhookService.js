@@ -169,7 +169,8 @@ export async function sendCheckoutWebhook(delivery) {
           if (error) return callback(error);
           const approved = addresses.find((entry) => publicIp(entry.address, entry.family));
           if (!approved) return callback(new Error("Endpoint resolves to a non-public IP."));
-          callback(null, approved.address, approved.family);
+          if (options?.all) callback(null, [approved]);
+          else callback(null, approved.address, approved.family);
         });
       },
     }, (response) => {
