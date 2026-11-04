@@ -3,6 +3,7 @@ import {
   getCheckoutBoxWebhookSettings,
   saveCheckoutBoxWebhookSettings,
   previewCheckoutBoxWebhook,
+  testCheckoutBoxWebhookConnection,
   getCheckoutBoxWebhookDeliveries,
   type CheckoutBoxWebhookSettings as WebhookSettings,
   type CheckoutBoxWebhookDelivery,
@@ -42,6 +43,22 @@ export function CheckoutBoxWebhookSettings() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not process settings.");
     } finally { setBusy(false); }
+  }
+
+  async function testConnection() {
+    if (!settings) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const result = await testCheckoutBoxWebhookConnection(settings);
+      setNotice(result.connected
+        ? `Connected securely (${result.protocol}). DNS and TLS verified. No HTTP request or checkout sent.`
+        : "Could not establish a secure connection.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Connection test failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function refreshDeliveries() {
@@ -108,6 +125,7 @@ export function CheckoutBoxWebhookSettings() {
           )}
           <div className="button-row">
             <button type="button" disabled={busy} onClick={() => void run("preview")}>Preview JSON</button>
+            <button type="button" disabled={busy} onClick={() => void testConnection()}>Test DNS + TLS (no checkout)</button>
             <button type="button" disabled={busy} onClick={() => void run("save")}>Save hotel integration</button>
           </div>
           {preview && <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{preview}</pre>}
