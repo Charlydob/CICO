@@ -491,6 +491,17 @@ export async function previewCheckoutBoxWebhook(
   });
 }
 
+export async function testCheckoutBoxWebhookConnection(settings: CheckoutBoxWebhookSettings): Promise<{
+  connected: boolean;
+  dns: boolean;
+  tls: boolean;
+  protocol: string | null;
+}> {
+  return requestJson("/api/settings/checkout-box-webhook/connection-test", {
+    method: "POST", body: JSON.stringify(settings),
+  });
+}
+
 export async function getCheckoutBoxWebhookDeliveries(): Promise<CheckoutBoxWebhookDelivery[]> {
   return requestJson<CheckoutBoxWebhookDelivery[]>("/api/settings/checkout-box-webhook/deliveries");
 }
