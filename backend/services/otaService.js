@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { buildCheckoutWebhookDelivery, getCheckoutWebhookSettings } from "./checkoutWebhookService.js";
 import {
   dispatchCheckoutNotifications,
   registerCheckout,
@@ -957,6 +958,9 @@ export function createOtaService(
     },
     async ingestEvents(device, body) {
       const events = deviceEvents(body);
+      const webhookSettings = device.tenantId
+        ? await getCheckoutWebhookSettings(database, device.tenantId)
+        : null;
       const registeredCheckouts = await prisma.$transaction(async(tx)=>{
         const queuedCheckouts=[];
         // Serialize event batches per device so simultaneous polls cannot both
@@ -1027,7 +1031,18 @@ export function createOtaService(
                     ...(checkout.event?.id?{checkoutEventId:checkout.event.id}:{}),
                   },
                 });
-                if(!checkout.duplicate) queuedCheckouts.push(checkout);
+                if (!checkout.duplicate) {
+                  // Store the outbound request in the same transaction as the checkout.
+                  // The device may retry its event after a network failure; one checkout
+                  // event owns at most one webhook delivery.
+                  if (webhookSettings) {
+                    const delivery = buildCheckoutWebhookDelivery(
+                      webhookSettings, checkout.event, checkout.room, uid, device.deviceId,
+                    );
+                    if (delivery) await tx.checkoutWebhookDelivery.create({ data: delivery });
+                  }
+                  queuedCheckouts.push(checkout);
+                }
               }
             }
           } else if(event.type==="CONFIG_REJECTED"||event.type==="CONFIG_STALE_REJECTED") {
