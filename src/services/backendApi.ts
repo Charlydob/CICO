@@ -448,6 +448,53 @@ export async function getIntegrationSettings(): Promise<IntegrationSettings> {
   );
 }
 
+export interface CheckoutBoxWebhookSettings {
+  enabled: boolean;
+  url: string;
+  jsonTemplate: string;
+  timezone: string;
+  authHeaderName: string;
+  authHeaderValue?: string;
+  authConfigured: boolean;
+}
+
+export interface CheckoutBoxWebhookDelivery {
+  id: string;
+  checkoutEventId: string;
+  status: string;
+  attempts: number;
+  lastHttpStatus: number | null;
+  lastError: string | null;
+  createdAt: string;
+  sentAt: string | null;
+  nextAttemptAt: string;
+}
+
+export async function getCheckoutBoxWebhookSettings(): Promise<CheckoutBoxWebhookSettings> {
+  return requestJson<CheckoutBoxWebhookSettings>("/api/settings/checkout-box-webhook");
+}
+
+export async function saveCheckoutBoxWebhookSettings(
+  settings: CheckoutBoxWebhookSettings & { clearAuth?: boolean },
+): Promise<CheckoutBoxWebhookSettings> {
+  return requestJson<CheckoutBoxWebhookSettings>("/api/settings/checkout-box-webhook", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
+export async function previewCheckoutBoxWebhook(
+  settings: CheckoutBoxWebhookSettings,
+): Promise<{ payload: Record<string, unknown> }> {
+  return requestJson<{ payload: Record<string, unknown> }>("/api/settings/checkout-box-webhook/preview", {
+    method: "POST", body: JSON.stringify(settings),
+  });
+}
+
+export async function getCheckoutBoxWebhookDeliveries(): Promise<CheckoutBoxWebhookDelivery[]> {
+  return requestJson<CheckoutBoxWebhookDelivery[]>("/api/settings/checkout-box-webhook/deliveries");
+}
+
 export async function updateMyProfile(input: {
   username?: string | null;
 }): Promise<UserProfile> {
