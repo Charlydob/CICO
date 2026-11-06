@@ -1008,8 +1008,9 @@ export function createOtaService(
                 keyName:key.name,room:key.room,hotelName:tenant?.name||"",
                 authorized:key.authorized,active:key.active,duplicate,
                 eventType:"RFID_READ",
-                result:duplicate?"DUPLICATE_SUPPRESSED":authorizedRoom?"AUTHORIZED_RETURN_PENDING":
-                  webhookEligible?"WEBHOOK_QUEUED":key.authorized&&key.active?"AUTHORIZED_ROOM_NOT_LINKED":"NOT_AUTHORIZED",
+                result:webhookEligible?"WEBHOOK_QUEUED":
+                  duplicate?"DUPLICATE_SUPPRESSED":authorizedRoom?"AUTHORIZED_RETURN_PENDING":
+                  key.authorized&&key.active?"AUTHORIZED_ROOM_NOT_LINKED":"NOT_AUTHORIZED",
                 diagnostic:event.detail||null,deviceUptimeMs:event.uptimeMs,
               }});
               if(webhookEligible) {
@@ -1018,7 +1019,9 @@ export function createOtaService(
                 );
                 if(delivery) await tx.checkoutWebhookDelivery.create({data:delivery});
               }
-              if(authorizedRoom&&!duplicate) {
+              // When the hotel webhook is enabled, the hotel's endpoint is the checkout
+              // authority. Do not require or mutate a local occupancy cycle.
+              if(authorizedRoom&&!duplicate&&!webhookEligible) {
                 if(!database)
                   throw new Error("RFID checkout processing requires the application database service.");
                 const checkout=await registerCheckout(database,tenant.id,room.id,"rfid",{
