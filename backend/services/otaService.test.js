@@ -300,6 +300,69 @@ test("authorized RFID without a valid room is diagnostic-only", async () => {
   assert.equal(readings[0].checkoutEventId,undefined);
 });
 
+test("every authorized mapped RFID_READ queues a hotel POST even without a local room or check-in", async () => {
+  const tenantId = "44444444-4444-4444-8444-444444444444";
+  const device = {
+    id: deviceId, deviceId: "checkoutbox-test", name: "Checkout recepción",
+    tenantId, hardwareModel: "ESP32_DEVKIT_CHECKOUT_V1",
+    desiredConfig: { duplicateRfidMs: 1500 },
+  };
+  const readings = [], deliveries = [];
+  const tx = {
+    deviceEvent: { createMany: async () => {}, findFirst: async () => null, deleteMany: async () => ({ count: 0 }) },
+    deviceRfidKey: {
+      upsert: async ({ where }) => where.deviceId_uid.uid === "AABBCCDD"
+        ? { id: "55555555-5555-4555-8555-555555555555", uid: "AABBCCDD", name: "Llave 107",
+            room: "Habitación 107", authorized: true, active: true }
+        : { id: "66666666-6666-4666-8666-666666666666", uid: where.deviceId_uid.uid,
+            name: "", room: "", authorized: false, active: true },
+    },
+    deviceRfidReading: {
+      findFirst: async ({ where }) => readings.filter((item) => item.uid === where.uid).at(-1) || null,
+      create: async ({ data }) => {
+        const reading = { id: "88888888-8888-4888-8888-" + String(readings.length + 1).padStart(12, "0"),
+          createdAt: new Date("2026-11-06T13:30:00.000Z"), ...data };
+        readings.push(reading);
+        return reading;
+      },
+    },
+    checkoutWebhookDelivery: {
+      create: async ({ data }) => { deliveries.push(data); return { ...data, id: "delivery-" + deliveries.length }; },
+    },
+    tenant: { findUnique: async () => ({ id: tenantId, name: "Bären" }) },
+    room: { findFirst: async () => null }, // No local occupancy/check-in or even room record.
+  };
+  const database = {
+    getRecord: async (collection) => collection === "tenants"
+      ? { id: tenantId, name: "Bären" }
+      : collection === "tenantSettings" ? {
+        integrations: { checkoutBoxWebhook: {
+          enabled: true, url: "https://checkin.baerenkiental.ch/checkout?token=example",
+          jsonTemplate: '{"Key":"{{key}}","Checkout at":"{{checkout_at}}"}',
+          timezone: "Europe/Zurich", authHeaderName: "Authorization", authHeaderValue: "Bearer example",
+        } },
+      } : null,
+  };
+  const service = createOtaService({ $transaction: async (callback) => callback(tx) }, {}, { database });
+  await service.ingestEvents(device, { events: [
+    { type: "RFID_READ", detail: "AABBCCDD raw=1234", uptime_ms: 1000 },
+    { type: "RFID_READ", detail: "AABBCCDD raw=1234", uptime_ms: 1050 },
+    { type: "RFID_READ", detail: "F0000000F0 raw=0000", uptime_ms: 1100 },
+  ] });
+
+  assert.equal(readings.length, 3);
+  assert.equal(deliveries.length, 2); // Even the local duplicate produces its own POST.
+  assert.equal(readings[0].result, "WEBHOOK_QUEUED");
+  assert.equal(readings[1].result, "DUPLICATE_SUPPRESSED");
+  assert.equal(readings[2].result, "NOT_AUTHORIZED");
+  assert.equal(deliveries[0].rfidReadingId, readings[0].id);
+  assert.equal(deliveries[1].rfidReadingId, readings[1].id);
+  assert.equal(deliveries[0].checkoutEventId, undefined);
+  assert.equal(deliveries[0].payload.Key, "107");
+  assert.equal(deliveries[1].payload.Key, "107");
+  assert.equal(deliveries[0].authHeaderName, "Authorization");
+});
+
 test("device hotel reassignment is audited without rewriting historical RFID context", async () => {
   const oldTenant="88888888-8888-4888-8888-888888888888";
   const newTenant="99999999-9999-4999-8999-999999999999";
