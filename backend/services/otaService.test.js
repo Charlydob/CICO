@@ -308,6 +308,7 @@ test("every authorized mapped RFID_READ queues a hotel POST even without a local
     desiredConfig: { duplicateRfidMs: 1500 },
   };
   const readings = [], deliveries = [];
+  let linkedRoom = false;
   const tx = {
     deviceEvent: { createMany: async () => {}, findFirst: async () => null, deleteMany: async () => ({ count: 0 }) },
     deviceRfidKey: {
@@ -330,7 +331,10 @@ test("every authorized mapped RFID_READ queues a hotel POST even without a local
       create: async ({ data }) => { deliveries.push(data); return { ...data, id: "delivery-" + deliveries.length }; },
     },
     tenant: { findUnique: async () => ({ id: tenantId, name: "Bären" }) },
-    room: { findFirst: async () => null }, // No local occupancy/check-in or even room record.
+    room: { findFirst: async () => linkedRoom ? {
+      id: "77777777-7777-4777-8777-777777777777", tenantId, number: "107", active: true,
+      status: "occupied",
+    } : null }, // Test first with no local room, then with a room but no check-in.
   };
   const database = {
     getRecord: async (collection) => collection === "tenants"
@@ -353,7 +357,8 @@ test("every authorized mapped RFID_READ queues a hotel POST even without a local
   assert.equal(readings.length, 3);
   assert.equal(deliveries.length, 2); // Even the local duplicate produces its own POST.
   assert.equal(readings[0].result, "WEBHOOK_QUEUED");
-  assert.equal(readings[1].result, "DUPLICATE_SUPPRESSED");
+  assert.equal(readings[1].result, "WEBHOOK_QUEUED");
+  assert.equal(readings[1].duplicate, true);
   assert.equal(readings[2].result, "NOT_AUTHORIZED");
   assert.equal(deliveries[0].rfidReadingId, readings[0].id);
   assert.equal(deliveries[1].rfidReadingId, readings[1].id);
@@ -361,6 +366,15 @@ test("every authorized mapped RFID_READ queues a hotel POST even without a local
   assert.equal(deliveries[0].payload.Key, "107");
   assert.equal(deliveries[1].payload.Key, "107");
   assert.equal(deliveries[0].authHeaderName, "Authorization");
+
+  // A locally registered room does not require a new occupancy cycle either.
+  linkedRoom = true;
+  await service.ingestEvents(device, { events: [
+    { type: "RFID_READ", detail: "AABBCCDD raw=1234", uptime_ms: 5000 },
+  ] });
+  assert.equal(deliveries.length, 3);
+  assert.equal(deliveries[2].payload.Key, "107");
+  assert.equal(readings[3].result, "WEBHOOK_QUEUED");
 });
 
 test("device hotel reassignment is audited without rewriting historical RFID context", async () => {
