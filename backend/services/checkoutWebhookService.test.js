@@ -7,6 +7,7 @@ import {
   validateCheckoutWebhookSettings,
   renderCheckoutWebhookPayload,
   buildCheckoutWebhookDelivery,
+  buildRfidCheckoutWebhookDelivery,
   publicCheckoutWebhookSettings,
   processDueCheckoutWebhooks,
 } from "./checkoutWebhookService.js";
@@ -60,6 +61,33 @@ test("one checkout produces a delivery only if integration is enabled", () => {
   assert.equal(delivery.endpointUrl, STEINBOCK_CHECKOUT_ENDPOINT);
   assert.deepEqual(delivery.payload, { Key: "105", "Checkout at": "29.10.2026 09:57" });
   assert.equal(buildCheckoutWebhookDelivery({ ...base, enabled: false }, event, { number: "105" }, "", ""), null);
+});
+
+test("each authorized RFID read queues its own webhook with no checkout event or occupancy state", () => {
+  const settings = validateCheckoutWebhookSettings({
+    ...base, enabled: true, url: "https://checkin.baerenkiental.ch/checkout?token=example",
+    authHeaderName: "Authorization", authHeaderValue: "Bearer example",
+  });
+  const at = new Date("2026-11-06T13:30:00.000Z");
+  const first = buildRfidCheckoutWebhookDelivery(settings, {
+    id: "reading-1", tenantId: "tenant-b", uid: "2E00B6D7B5", createdAt: at,
+  }, "107", "checkoutbox-lab-01");
+  const second = buildRfidCheckoutWebhookDelivery(settings, {
+    id: "reading-2", tenantId: "tenant-b", uid: "2E00B6D7B5", createdAt: at,
+  }, "107", "checkoutbox-lab-01");
+  assert.equal(first.rfidReadingId, "reading-1");
+  assert.equal(second.rfidReadingId, "reading-2");
+  assert.equal(first.checkoutEventId, undefined);
+  assert.deepEqual(first.payload, { "Key": "107", "Checkout at": "06.11.2026 14:30" });
+  assert.deepEqual(second.payload, first.payload);
+  assert.equal(first.authHeaderName, "Authorization");
+  assert.equal(first.authHeaderValue, "Bearer example");
+  assert.equal(buildRfidCheckoutWebhookDelivery({ ...settings, enabled: false }, {
+    id: "reading-3", tenantId: "tenant-b", uid: "2E00B6D7B5", createdAt: at,
+  }, "107", "box"), null);
+  assert.equal(buildRfidCheckoutWebhookDelivery(settings, {
+    id: "reading-4", tenantId: "tenant-b", uid: "2E00B6D7B5", createdAt: at,
+  }, "", "box"), null);
 });
 
 test("TLS connection probe uses only DNS and TLS, with no HTTP request", async () => {
