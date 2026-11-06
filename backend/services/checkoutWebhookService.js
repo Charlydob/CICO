@@ -269,7 +269,13 @@ export async function processDueCheckoutWebhooks(prisma, { send = sendCheckoutWe
     try { result = await send(delivery); } catch (cause) { error = cause; }
     const attempts = delivery.attempts + 1;
     const success = Boolean(result?.ok);
-    const status = success ? "SUCCEEDED" : attempts >= MAX_ATTEMPTS ? "FAILED" : "RETRY";
+    // An HTTP 404 is a completed response from the destination, not a network
+    // outage. Retrying this same read eight times cannot create a new stay.
+    // A subsequent physical read still creates a separate delivery.
+    const permanentClientError = Number(result?.status) >= 400 &&
+      Number(result?.status) < 500 && ![408, 429].includes(Number(result?.status));
+    const status = success ? "SUCCEEDED" :
+      (permanentClientError || attempts >= MAX_ATTEMPTS) ? "FAILED" : "RETRY";
     // Do not overwrite an in-progress delivery reclaimed by another worker.
     await prisma.checkoutWebhookDelivery.updateMany({
       where: { id: delivery.id, status: "PROCESSING", attempts: delivery.attempts },
