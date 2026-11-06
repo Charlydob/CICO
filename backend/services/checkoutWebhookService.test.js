@@ -157,3 +157,21 @@ test("outbox schedules a retry after a failed POST", async () => {
   assert.equal(delivery.lastHttpStatus, 503);
   assert.ok(delivery.nextAttemptAt.getTime() > Date.now());
 });
+
+test("HTTP 404 ends this read after one attempt; the next RFID read can still enqueue a new POST", async () => {
+  const delivery = {
+    id: "d-404", rfidReadingId: "r-1", checkoutEventId: null,
+    status: "PENDING", attempts: 0, nextAttemptAt: new Date(0), createdAt: new Date(0),
+  };
+  const prisma = { checkoutWebhookDelivery: {
+    findMany: async () => delivery.status === "PENDING" ? [structuredClone(delivery)] : [],
+    updateMany: async ({ data }) => { Object.assign(delivery, data); return { count: 1 }; },
+  } };
+  let calls = 0;
+  await processDueCheckoutWebhooks(prisma, { send: async () => { calls++; return { ok: false, status: 404 }; } });
+  await processDueCheckoutWebhooks(prisma, { send: async () => { calls++; return { ok: false, status: 404 }; } });
+  assert.equal(calls, 1);
+  assert.equal(delivery.status, "FAILED");
+  assert.equal(delivery.attempts, 1);
+  assert.equal(delivery.lastHttpStatus, 404);
+});

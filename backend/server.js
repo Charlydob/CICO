@@ -997,11 +997,24 @@ const server = createServer(async (request, response) => {
       requireTenantAdmin(context.session, tenantId);
       const deliveries = await database.prisma.checkoutWebhookDelivery.findMany({
         where: { tenantId }, orderBy: { createdAt: "desc" }, take: 20,
-        select: { id: true, checkoutEventId: true, status: true, attempts: true,
+        select: { id: true, checkoutEventId: true, rfidReadingId: true,
+          endpointUrl: true, payload: true, status: true, attempts: true,
           nextAttemptAt: true, lastHttpStatus: true, lastError: true,
           sentAt: true, createdAt: true },
       });
-      sendJson(response, 200, deliveries);
+      // Show what was actually sent while never returning secrets in query strings
+      // or authorization headers to the diagnostic UI.
+      sendJson(response, 200, deliveries.map(({ endpointUrl, payload, ...delivery }) => {
+        const url = new URL(endpointUrl);
+        const value = payload && typeof payload === "object" && !Array.isArray(payload)
+          ? payload.Key ?? payload.key ?? payload.room ?? null : null;
+        return {
+          ...delivery,
+          key: typeof value === "string" || typeof value === "number"
+            ? String(value).slice(0, 100) : null,
+          endpoint: url.origin + url.pathname,
+        };
+      }));
       return;
     }
 

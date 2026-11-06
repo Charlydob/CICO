@@ -460,7 +460,10 @@ export interface CheckoutBoxWebhookSettings {
 
 export interface CheckoutBoxWebhookDelivery {
   id: string;
-  checkoutEventId: string;
+  checkoutEventId: string | null;
+  rfidReadingId: string | null;
+  key: string | null;
+  endpoint: string;
   status: string;
   attempts: number;
   lastHttpStatus: number | null;

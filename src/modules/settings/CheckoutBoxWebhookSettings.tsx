@@ -139,9 +139,11 @@ export function CheckoutBoxWebhookSettings() {
               {deliveries.slice(0, 10).map((delivery) => (
                 <li key={delivery.id}>
                   <strong>{delivery.status}</strong> · {new Date(delivery.createdAt).toLocaleString()}
+                  {delivery.key ? ` · Key: ${delivery.key}` : ""}
                   {" "}· {delivery.attempts} attempt(s)
                   {delivery.lastHttpStatus ? ` · HTTP ${delivery.lastHttpStatus}` : ""}
                   {delivery.lastError ? ` · ${delivery.lastError}` : ""}
+                  <small style={{ display: "block", overflowWrap: "anywhere" }}>{delivery.endpoint}</small>
                 </li>
               ))}
             </ul>
