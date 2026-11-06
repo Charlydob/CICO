@@ -268,7 +268,8 @@ model CheckoutEvent {
 model CheckoutWebhookDelivery {
   id              String   @id @default(uuid()) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
-  checkoutEventId String   @unique @map("checkout_event_id") @db.Uuid
+  checkoutEventId String?  @unique @map("checkout_event_id") @db.Uuid
+  rfidReadingId   String?  @unique @map("rfid_reading_id") @db.Uuid
   endpointUrl     String   @map("endpoint_url")
   payload         Json
   authHeaderName  String?  @map("auth_header_name")
@@ -282,7 +283,8 @@ model CheckoutWebhookDelivery {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
   tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  checkoutEvent   CheckoutEvent @relation(fields: [checkoutEventId], references: [id], onDelete: Cascade)
+  checkoutEvent   CheckoutEvent? @relation(fields: [checkoutEventId], references: [id], onDelete: Cascade)
+  rfidReading     DeviceRfidReading? @relation(fields: [rfidReadingId], references: [id], onDelete: Cascade)
 
   @@index([status, nextAttemptAt])
   @@index([tenantId, createdAt])
@@ -528,6 +530,7 @@ model DeviceRfidReading {
   deviceUptimeMs        Int      @map("device_uptime_ms")
   createdAt             DateTime @default(now()) @map("created_at")
   device                Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  checkoutWebhookDelivery CheckoutWebhookDelivery?
 
   @@index([deviceId, createdAt])
   @@index([tenantId, createdAt])

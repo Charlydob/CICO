@@ -137,6 +137,31 @@ export function buildCheckoutWebhookDelivery(settings, event, room, uid, deviceI
   };
 }
 
+// A hotel checkout is a physical key-return event, not a local occupancy-cycle transition.
+// One outbox row per accepted RFID_READ; repeated physical reads have independent IDs.
+export function buildRfidCheckoutWebhookDelivery(settings, reading, roomNumber, deviceId) {
+  if (!settings?.enabled || !settings.url || !reading?.tenantId) return null;
+  const room = String(roomNumber || "").trim();
+  if (!room) return null;
+  const payload = renderCheckoutWebhookPayload(settings, {
+    timestamp: reading.createdAt,
+    eventId: reading.id,
+    key: room,
+    room,
+    uid: reading.uid,
+    deviceId,
+  });
+  return {
+    tenantId: reading.tenantId,
+    rfidReadingId: reading.id,
+    endpointUrl: settings.url,
+    payload,
+    authHeaderName: settings.authHeaderName || null,
+    authHeaderValue: settings.authHeaderValue || null,
+    status: "PENDING",
+  };
+}
+
 function publicIp(address, family) {
   if (family === 4) {
     const [a,b,c] = address.split(".").map(Number);
@@ -204,7 +229,7 @@ export async function sendCheckoutWebhook(delivery) {
     const headers = {
       "Content-Type": "application/json",
       "Content-Length": Buffer.byteLength(body),
-      "Idempotency-Key": delivery.checkoutEventId,
+      "Idempotency-Key": delivery.rfidReadingId || delivery.checkoutEventId || delivery.id,
     };
     if (delivery.authHeaderName && delivery.authHeaderValue) headers[delivery.authHeaderName] = delivery.authHeaderValue;
     const req = httpsRequest(url, {

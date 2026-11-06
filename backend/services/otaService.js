@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { buildCheckoutWebhookDelivery, getCheckoutWebhookSettings } from "./checkoutWebhookService.js";
+import { buildRfidCheckoutWebhookDelivery, getCheckoutWebhookSettings } from "./checkoutWebhookService.js";
 import {
   dispatchCheckoutNotifications,
   registerCheckout,
@@ -1000,16 +1000,28 @@ export function createOtaService(
                   }})
                 : null;
               const authorizedRoom=Boolean(key.authorized&&key.active&&tenant&&room);
+              // The hotel's webhook is independent of local room existence, occupancy and cooldown.
+              // It is queued once for every authorized, mapped RFID_READ received from the device.
+              const webhookEligible=Boolean(key.authorized&&key.active&&tenant&&normalizedRoom&&webhookSettings?.enabled);
               const reading=await tx.deviceRfidReading.create({data:{
                 deviceId:device.id,tenantId:tenant?.id||null,keyId:key.id,uid,
                 keyName:key.name,room:key.room,hotelName:tenant?.name||"",
                 authorized:key.authorized,active:key.active,duplicate,
                 eventType:"RFID_READ",
-                result:duplicate?"DUPLICATE_SUPPRESSED":authorizedRoom?"AUTHORIZED_RETURN_PENDING":
+                result:webhookEligible?"WEBHOOK_QUEUED":
+                  duplicate?"DUPLICATE_SUPPRESSED":authorizedRoom?"AUTHORIZED_RETURN_PENDING":
                   key.authorized&&key.active?"AUTHORIZED_ROOM_NOT_LINKED":"NOT_AUTHORIZED",
                 diagnostic:event.detail||null,deviceUptimeMs:event.uptimeMs,
               }});
-              if(authorizedRoom&&!duplicate) {
+              if(webhookEligible) {
+                const delivery=buildRfidCheckoutWebhookDelivery(
+                  webhookSettings,reading,normalizedRoom,device.deviceId,
+                );
+                if(delivery) await tx.checkoutWebhookDelivery.create({data:delivery});
+              }
+              // When the hotel webhook is enabled, the hotel's endpoint is the checkout
+              // authority. Do not require or mutate a local occupancy cycle.
+              if(authorizedRoom&&!duplicate&&!webhookEligible) {
                 if(!database)
                   throw new Error("RFID checkout processing requires the application database service.");
                 const checkout=await registerCheckout(database,tenant.id,room.id,"rfid",{
@@ -1032,15 +1044,6 @@ export function createOtaService(
                   },
                 });
                 if (!checkout.duplicate) {
-                  // Store the outbound request in the same transaction as the checkout.
-                  // The device may retry its event after a network failure; one checkout
-                  // event owns at most one webhook delivery.
-                  if (webhookSettings) {
-                    const delivery = buildCheckoutWebhookDelivery(
-                      webhookSettings, checkout.event, checkout.room, uid, device.deviceId,
-                    );
-                    if (delivery) await tx.checkoutWebhookDelivery.create({ data: delivery });
-                  }
                   queuedCheckouts.push(checkout);
                 }
               }

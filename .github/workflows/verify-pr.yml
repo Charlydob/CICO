@@ -1,0 +1,37 @@
+name: Verify pull requests (no deployment)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hookbox_test
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: hookbox_ci
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U hookbox_test" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://hookbox_test:local-ci-only@127.0.0.1:5432/hookbox_ci
+      HOOKBOX_TEST_DATABASE_URL: postgresql://hookbox_test:local-ci-only@127.0.0.1:5432/hookbox_ci
+      OTA_POSTGRES_TEST_DATABASE_URL: postgresql://hookbox_test:local-ci-only@127.0.0.1:5432/hookbox_ci
+      CHECKOUT_POSTGRES_TEST_DATABASE_URL: postgresql://hookbox_test:local-ci-only@127.0.0.1:5432/hookbox_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npm test
+      - run: npm run build
+      - run: npx prisma validate
