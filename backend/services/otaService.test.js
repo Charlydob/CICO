@@ -322,7 +322,7 @@ test("every authorized mapped RFID_READ queues a hotel POST even without a local
       findFirst: async ({ where }) => readings.filter((item) => item.uid === where.uid).at(-1) || null,
       create: async ({ data }) => {
         const reading = { id: "88888888-8888-4888-8888-" + String(readings.length + 1).padStart(12, "0"),
-          createdAt: new Date("2026-11-06T13:30:00.000Z"), ...data };
+          createdAt: new Date(), ...data };
         readings.push(reading);
         return reading;
       },
