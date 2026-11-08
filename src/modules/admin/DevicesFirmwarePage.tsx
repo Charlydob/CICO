@@ -4,6 +4,8 @@ import {
   getDevices,
   getDevice,
   registerDevice,
+  getDeviceDiscoveries,
+  approveDeviceDiscovery,
   getFirmwareReleases,
   startDeviceUpdate,
   deleteFirmwareRelease,
@@ -16,6 +18,7 @@ import type {
   PhysicalDevice,
   FirmwareRelease,
   OtaUpdate,
+  DeviceDiscovery,
 } from "../../types/firmware";
 
 const SLOT_BYTES = 1792 * 1024;
@@ -54,7 +57,8 @@ export function DevicesFirmwarePage() {
   const listScrollPosition = useRef(0);
   const [tab, setTab] = useState<"devices" | "releases">("devices");
   const [devices, setDevices] = useState<PhysicalDevice[]>([]),
-    [releases, setReleases] = useState<FirmwareRelease[]>([]);
+    [releases, setReleases] = useState<FirmwareRelease[]>([]),
+    [discoveries, setDiscoveries] = useState<DeviceDiscovery[]>([]);
   const [selected, setSelected] = useState<PhysicalDevice | null>(null),
     [updateDevice, setUpdateDevice] = useState<PhysicalDevice | null>(null);
   const [releaseId, setReleaseId] = useState(""),
@@ -74,13 +78,18 @@ export function DevicesFirmwarePage() {
     hardwareModel: "CROWPANEL_7_V3",
     tenantId: "",
   });
+  const [approval, setApproval] = useState({
+    id: "", pairingCode: "", name: "Checkout Box 2", tenantId: "",
+  });
   async function reload() {
-    const [nextDevices, nextReleases] = await Promise.all([
+    const [nextDevices, nextReleases, nextDiscoveries] = await Promise.all([
       getDevices(),
       getFirmwareReleases(),
+      getDeviceDiscoveries(),
     ]);
     setDevices(nextDevices);
     setReleases(nextReleases);
+    setDiscoveries(nextDiscoveries);
   }
   useEffect(() => {
     if (!session?.isPlatformAdmin) return;
@@ -90,14 +99,16 @@ export function DevicesFirmwarePage() {
       if (running) return;
       running = true;
       try {
-        const [nextDevices, nextReleases, detail] = await Promise.all([
+        const [nextDevices, nextReleases, nextDiscoveries, detail] = await Promise.all([
           getDevices(),
           getFirmwareReleases(),
+          getDeviceDiscoveries(),
           selected?.id ? getDevice(selected.id) : Promise.resolve(null),
         ]);
         if (alive) {
           setDevices(nextDevices);
           setReleases(nextReleases);
+          setDiscoveries(nextDiscoveries);
           if (detail) setSelected(detail);
         }
       } catch (error) {
@@ -212,6 +223,43 @@ export function DevicesFirmwarePage() {
           onBack={closeDevice}
           onStartUpdate={(device)=>{setUpdateDevice(device);setReleaseId("");}}
         /> : <>
+          <div className="panel ota-table-scroll">
+            <h2>Nuevo dispositivo detectado</h2>
+            <p>Solo se activa después de introducir el código mostrado físicamente por la unidad.</p>
+            <table className="ota-table device-list-table">
+              <thead><tr><th>Identidad</th><th>Modelo / MAC</th><th>Firmware</th><th>Último contacto</th><th>Acción</th></tr></thead>
+              <tbody>
+                {discoveries.filter((item)=>item.status==="PENDING").map((item)=><tr key={item.id}>
+                  <td data-label="Identidad"><strong>{item.deviceId}</strong></td>
+                  <td data-label="Modelo / MAC">{item.hardwareModel}<br/>{item.hardwareUid.toUpperCase().match(/.{2}/g)?.join(":")}</td>
+                  <td data-label="Firmware">{item.firmwareVersion}<br/>{item.buildId}</td>
+                  <td data-label="Último contacto">{age(item.lastSeenAt)}</td>
+                  <td data-label="Acción"><button disabled={busy} onClick={()=>setApproval({
+                    id:item.id,pairingCode:"",name:`Checkout Box ${devices.filter((d)=>d.hardwareModel==="ESP32_DEVKIT_CHECKOUT_V1").length+1}`,tenantId:"",
+                  })}>Emparejar</button></td>
+                </tr>)}
+              </tbody>
+            </table>
+            {!discoveries.some((item)=>item.status==="PENDING")&&<p>No hay dispositivos pendientes.</p>}
+          </div>
+          {approval.id&&<form className="panel settings-form ota-form" onSubmit={(event)=>{
+            event.preventDefault(); void run(async()=>{
+              await approveDeviceDiscovery(approval.id,{
+                pairingCode:approval.pairingCode,name:approval.name,tenantId:approval.tenantId||null,
+              });
+              setApproval({id:"",pairingCode:"",name:"Checkout Box 2",tenantId:""});
+            },"Dispositivo emparejado. La credencial individual se entregará automáticamente.");
+          }}>
+            <h2>Emparejar dispositivo</h2>
+            <label>Nombre visible<input required maxLength={128} value={approval.name} onChange={(e)=>setApproval({...approval,name:e.target.value})}/></label>
+            <label>Código físico<input required inputMode="numeric" pattern="[0-9]{8}" maxLength={8} value={approval.pairingCode} onChange={(e)=>setApproval({...approval,pairingCode:e.target.value})}/></label>
+            <label>Hotel<select value={approval.tenantId} onChange={(e)=>setApproval({...approval,tenantId:e.target.value})}>
+              <option value="">Sin asignar / laboratorio</option>
+              {session.tenants.map((tenant)=><option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
+            </select></label>
+            <button className="primary-button" disabled={busy}>Aprobar y emparejar</button>{" "}
+            <button type="button" disabled={busy} onClick={()=>setApproval({...approval,id:""})}>Cancelar</button>
+          </form>}
           <div className="panel ota-table-scroll">
             <table className="ota-table device-list-table">
               <thead>

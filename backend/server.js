@@ -7,6 +7,7 @@ import { handleHookboxRoute } from './hookbox/routes.js';
 import { createServer } from "node:http";
 import { handleOtaRoute } from "./routes/otaRoutes.js";
 import { createOtaService } from "./services/otaService.js";
+import { createDeviceProvisioningService } from "./services/deviceProvisioningService.js";
 import { createFirmwareStorage } from "./services/firmwareStorage.js";
 import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -302,6 +303,7 @@ const status = {
 const database = createDatabaseClient();
 const firmwareStorage = createFirmwareStorage();
 const otaService = createOtaService(database.prisma, firmwareStorage, { database });
+const provisioningService = createDeviceProvisioningService(database.prisma);
 const hookboxService = createHookboxService(database.prisma, createCheckinProvider());
 const deviceLimiter = createRateLimiter({ windowMs: 60_000, max: 240 });
 await ensureBootstrapTenant(database);
@@ -504,7 +506,8 @@ const server = createServer(async (request, response) => {
   try {
     if (await handleHookboxRoute({request,response,pathname,service:hookboxService,otaService,getContext:getProtectedContext,limiter:deviceLimiter,responseHeaders:corsHeaders(request)})) return;
     if (await handleOtaRoute({ request, response, pathname, parsedUrl, service: otaService,
-      storage: firmwareStorage, getContext: getProtectedContext, limiter: deviceLimiter, responseHeaders: corsHeaders(request) })) return;
+      provisioning: provisioningService, storage: firmwareStorage, getContext: getProtectedContext,
+      limiter: deviceLimiter, responseHeaders: corsHeaders(request) })) return;
     if (request.method === "GET" && pathname === "/api/health") {
       let databaseConnected = false;
       try {

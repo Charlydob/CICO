@@ -19,6 +19,7 @@ services:
       BACKEND_HOST: 0.0.0.0
       BACKEND_PORT: 3001
       OTA_PUBLIC_ORIGIN: ${APP_ORIGIN:-https://hotelapp.charlydob.com}
+      PROVISIONING_MASTER_KEY: ${PROVISIONING_MASTER_KEY:-}
       # Backend is private; the existing Caddy proxy supplies X-Forwarded-Proto.
       OTA_TRUST_PROXY: "true"
       INVITATION_MAIL_URL: "${INVITATION_MAIL_URL:-}"
