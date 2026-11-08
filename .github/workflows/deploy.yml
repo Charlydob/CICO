@@ -154,11 +154,15 @@ jobs:
             VALIDATION_OLD_APP="hotelapp-compat-${DEPLOY_SHA:0:12}"
             VALIDATION_NETWORK="hotelapp-migration-${DEPLOY_SHA:0:12}"
             PREVIOUS_BACKEND_COMPAT_IMAGE=""
+            PREVIOUS_BUILD_DIR=""
             cleanup() {
               docker rm -f "$VALIDATION_OLD_APP" "$VALIDATION_DB" >/dev/null 2>&1 || true
               docker network rm "$VALIDATION_NETWORK" >/dev/null 2>&1 || true
               if [ -n "$PREVIOUS_BACKEND_COMPAT_IMAGE" ]; then
                 docker image rm "$PREVIOUS_BACKEND_COMPAT_IMAGE" >/dev/null 2>&1 || true
+              fi
+              if [ -n "$PREVIOUS_BUILD_DIR" ]; then
+                rm -rf -- "$PREVIOUS_BUILD_DIR"
               fi
               rm -f "$COMPOSE_PATCH"
             }
@@ -191,7 +195,20 @@ jobs:
             fi
             PREVIOUS_BACKEND_IMAGE_ID="$(docker inspect "$BACKEND_CONTAINER" --format '{{.Image}}')"
             PREVIOUS_BACKEND_COMPAT_IMAGE="hotelapp-backend-compat:${PREVIOUS_SHA:0:12}"
-            docker image tag "$PREVIOUS_BACKEND_IMAGE_ID" "$PREVIOUS_BACKEND_COMPAT_IMAGE"
+            if docker image inspect "$PREVIOUS_BACKEND_IMAGE_ID" >/dev/null 2>&1; then
+              docker image tag "$PREVIOUS_BACKEND_IMAGE_ID" "$PREVIOUS_BACKEND_COMPAT_IMAGE"
+            else
+              # A running container can outlive its untagged image metadata after
+              # an interrupted Compose build. Rebuild the exact live revision in
+              # an isolated temporary context so compatibility can still be proven.
+              PREVIOUS_BUILD_DIR="$(mktemp -d)"
+              git archive "$PREVIOUS_SHA" | tar -x -C "$PREVIOUS_BUILD_DIR"
+              docker build \
+                --build-arg GIT_SHA="$PREVIOUS_SHA" \
+                --tag "$PREVIOUS_BACKEND_COMPAT_IMAGE" \
+                --file "$PREVIOUS_BUILD_DIR/Dockerfile" \
+                "$PREVIOUS_BUILD_DIR"
+            fi
 
             BACKUP_DIR="$PWD/backups/$(date -u +%Y%m%dT%H%M%SZ)-$DEPLOY_SHA"
             install -m 700 -d "$BACKUP_DIR"
