@@ -127,7 +127,12 @@ jobs:
             cd /opt/hotelapp
 
             git fetch --prune origin main
-            PREVIOUS_SHA="$(git rev-parse HEAD)"
+            PREVIOUS_VERSION_JSON="$(curl --fail --silent --show-error http://127.0.0.1:3001/api/version)"
+            PREVIOUS_SHA="$(printf '%s' "$PREVIOUS_VERSION_JSON" | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p')"
+            if [ -z "$PREVIOUS_SHA" ] || ! git cat-file -e "$PREVIOUS_SHA^{commit}"; then
+              echo "::error::Cannot identify the currently deployed commit for a safe rollback"
+              exit 1
+            fi
             # The production Compose file has site-specific local overrides.
             # Preserve only that tracked modification; refuse every other dirty file.
             LOCAL_CHANGED="$(git diff --name-only)"
@@ -148,9 +153,13 @@ jobs:
             VALIDATION_DB="hotelapp-migration-db-${DEPLOY_SHA:0:12}"
             VALIDATION_OLD_APP="hotelapp-compat-${DEPLOY_SHA:0:12}"
             VALIDATION_NETWORK="hotelapp-migration-${DEPLOY_SHA:0:12}"
+            PREVIOUS_BACKEND_COMPAT_IMAGE=""
             cleanup() {
               docker rm -f "$VALIDATION_OLD_APP" "$VALIDATION_DB" >/dev/null 2>&1 || true
               docker network rm "$VALIDATION_NETWORK" >/dev/null 2>&1 || true
+              if [ -n "$PREVIOUS_BACKEND_COMPAT_IMAGE" ]; then
+                docker image rm "$PREVIOUS_BACKEND_COMPAT_IMAGE" >/dev/null 2>&1 || true
+              fi
               rm -f "$COMPOSE_PATCH"
             }
             trap cleanup EXIT
@@ -180,6 +189,9 @@ jobs:
               echo "Cannot back up production: the current backend container is not running"
               exit 1
             fi
+            PREVIOUS_BACKEND_IMAGE_ID="$(docker inspect "$BACKEND_CONTAINER" --format '{{.Image}}')"
+            PREVIOUS_BACKEND_COMPAT_IMAGE="hotelapp-backend-compat:${PREVIOUS_SHA:0:12}"
+            docker image tag "$PREVIOUS_BACKEND_IMAGE_ID" "$PREVIOUS_BACKEND_COMPAT_IMAGE"
 
             BACKUP_DIR="$PWD/backups/$(date -u +%Y%m%dT%H%M%SZ)-$DEPLOY_SHA"
             install -m 700 -d "$BACKUP_DIR"
@@ -274,12 +286,11 @@ jobs:
             # The currently deployed (pre-change) backend must still start and
             # report healthy against the migrated snapshot. This establishes
             # the rollback path without touching the production database.
-            PREVIOUS_BACKEND_IMAGE="$(docker inspect "$BACKEND_CONTAINER" --format '{{.Image}}')"
             docker run -d --name "$VALIDATION_OLD_APP" --network "$VALIDATION_NETWORK" \
               --env-file .env \
               -e DATABASE_URL="$SNAPSHOT_DATABASE_URL" \
               -e BACKEND_HOST=0.0.0.0 -e BACKEND_PORT=3001 \
-              "$PREVIOUS_BACKEND_IMAGE" >/dev/null
+              "$PREVIOUS_BACKEND_COMPAT_IMAGE" >/dev/null
             for i in $(seq 1 30); do
               if docker exec "$VALIDATION_OLD_APP" node -e \
                 "fetch('http://127.0.0.1:3001/api/health').then(async r=>{const j=await r.json();process.exit(r.ok&&j.databaseConnected?0:1)}).catch(()=>process.exit(1))"; then
