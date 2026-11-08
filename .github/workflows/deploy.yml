@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: hotelapp-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   verify:
@@ -71,6 +71,51 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
+      - name: Install provisioning secret without logging it
+        env:
+          PROVISIONING_MASTER_KEY: ${{ secrets.PROVISIONING_MASTER_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_SSH_HOST }}
+          SSH_USER: ${{ secrets.HETZNER_SSH_USER }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$PROVISIONING_MASTER_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "::error::PROVISIONING_MASTER_KEY must be a configured 32-byte hexadecimal repository secret."
+            exit 1
+          fi
+          printf '%s\n' "$PROVISIONING_MASTER_KEY" | ssh "$SSH_USER@$SSH_HOST" '
+            set -euo pipefail
+            umask 077
+            IFS= read -r provisioning_key
+            invalid_chars="$(printf "%s" "$provisioning_key" | tr -d "0-9a-fA-F")"
+            if [ "${#provisioning_key}" -ne 64 ] || [ -n "$invalid_chars" ]; then
+              echo "Invalid provisioning secret received" >&2
+              exit 1
+            fi
+            cd /opt/hotelapp
+            test -f .env
+            env_tmp="$(mktemp .env.provisioning.XXXXXX)"
+            trap '\''rm -f "$env_tmp"'\'' EXIT
+            found=false
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in
+                PROVISIONING_MASTER_KEY=*)
+                  printf "PROVISIONING_MASTER_KEY=%s\n" "$provisioning_key" >> "$env_tmp"
+                  found=true
+                  ;;
+                *) printf "%s\n" "$line" >> "$env_tmp" ;;
+              esac
+            done < .env
+            if [ "$found" = false ]; then
+              printf "PROVISIONING_MASTER_KEY=%s\n" "$provisioning_key" >> "$env_tmp"
+            fi
+            chown --reference=.env "$env_tmp"
+            chmod --reference=.env "$env_tmp"
+            mv -f "$env_tmp" .env
+            trap - EXIT
+            unset provisioning_key
+            echo "Provisioning secret installed in the protected server environment"
+          '
+
       - name: Deploy exact commit
         env:
           SSH_HOST: ${{ secrets.HETZNER_SSH_HOST }}
@@ -100,7 +145,15 @@ jobs:
             # is re-applied on top of the target commit before using Compose.
             COMPOSE_PATCH="$(mktemp)"
             chmod 600 "$COMPOSE_PATCH"
-            trap 'rm -f "$COMPOSE_PATCH"' EXIT
+            VALIDATION_DB="hotelapp-migration-db-${DEPLOY_SHA:0:12}"
+            VALIDATION_OLD_APP="hotelapp-compat-${DEPLOY_SHA:0:12}"
+            VALIDATION_NETWORK="hotelapp-migration-${DEPLOY_SHA:0:12}"
+            cleanup() {
+              docker rm -f "$VALIDATION_OLD_APP" "$VALIDATION_DB" >/dev/null 2>&1 || true
+              docker network rm "$VALIDATION_NETWORK" >/dev/null 2>&1 || true
+              rm -f "$COMPOSE_PATCH"
+            }
+            trap cleanup EXIT
             if [ "$LOCAL_CHANGED" = "docker-compose.hetzner.yml" ]; then
               git diff --binary -- docker-compose.hetzner.yml > "$COMPOSE_PATCH"
             fi
@@ -167,13 +220,98 @@ jobs:
 
             export GIT_SHA="$DEPLOY_SHA"
             docker compose -f docker-compose.hetzner.yml build --pull backend frontend
+            BACKEND_IMAGE="$(docker compose -f docker-compose.hetzner.yml config --images | grep -- '-backend$' | head -n 1)"
+            test -n "$BACKEND_IMAGE"
+
+            # Restore the real production snapshot into an isolated PostgreSQL
+            # container, migrate that copy, and prove that every pre-existing
+            # device field is byte-for-byte equivalent afterwards.
+            VALIDATION_PASSWORD="$(openssl rand -hex 32)"
+            docker network create "$VALIDATION_NETWORK" >/dev/null
+            docker run -d --name "$VALIDATION_DB" --network "$VALIDATION_NETWORK" \
+              --network-alias postgres-snapshot \
+              -e POSTGRES_PASSWORD="$VALIDATION_PASSWORD" \
+              -e POSTGRES_DB=hotelapp_snapshot \
+              -v "$BACKUP_DIR:/backup:ro" \
+              postgres:16-alpine >/dev/null
+            for i in $(seq 1 30); do
+              if docker exec "$VALIDATION_DB" pg_isready -U postgres -d hotelapp_snapshot >/dev/null 2>&1; then
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "::error::Snapshot PostgreSQL did not become ready"
+                exit 1
+              fi
+              sleep 1
+            done
+            docker exec "$VALIDATION_DB" pg_restore --exit-on-error --no-owner --no-acl \
+              -U postgres -d hotelapp_snapshot /backup/hotelapp.dump
+            PRE_DEVICE_FINGERPRINT="$(docker exec "$VALIDATION_DB" psql -U postgres -d hotelapp_snapshot -At \
+              -c "SELECT count(*)::text || ':' || md5(COALESCE(jsonb_agg(to_jsonb(d) - 'hardware_uid' ORDER BY id), '[]'::jsonb)::text) FROM devices d")"
+            PRE_BOX1_FINGERPRINT="$(docker exec "$VALIDATION_DB" psql -U postgres -d hotelapp_snapshot -At \
+              -c "SELECT count(*)::text || ':' || md5(COALESCE(jsonb_agg(to_jsonb(d) - 'hardware_uid' ORDER BY id), '[]'::jsonb)::text) FROM devices d WHERE device_id = 'checkoutbox-lab-01'")"
+            if docker exec "$VALIDATION_DB" psql -U postgres -d hotelapp_snapshot -At \
+              -c "SELECT to_regclass('public.device_discoveries') IS NOT NULL" | grep -qx t; then
+              PRE_DISCOVERY_COUNT="$(docker exec "$VALIDATION_DB" psql -U postgres -d hotelapp_snapshot -At \
+                -c "SELECT count(*) FROM device_discoveries")"
+            else
+              PRE_DISCOVERY_COUNT=0
+            fi
+            SNAPSHOT_DATABASE_URL="postgresql://postgres:${VALIDATION_PASSWORD}@postgres-snapshot:5432/hotelapp_snapshot?schema=public"
+            docker run --rm --network "$VALIDATION_NETWORK" \
+              -e DATABASE_URL="$SNAPSHOT_DATABASE_URL" \
+              "$BACKEND_IMAGE" npx prisma migrate deploy --schema prisma/schema.prisma
+            POST_DEVICE_FINGERPRINT="$(docker exec "$VALIDATION_DB" psql -U postgres -d hotelapp_snapshot -At \
+              -c "SELECT count(*)::text || ':' || md5(COALESCE(jsonb_agg(to_jsonb(d) - 'hardware_uid' ORDER BY id), '[]'::jsonb)::text) FROM devices d")"
+            POST_BOX1_FINGERPRINT="$(docker exec "$VALIDATION_DB" psql -U postgres -d hotelapp_snapshot -At \
+              -c "SELECT count(*)::text || ':' || md5(COALESCE(jsonb_agg(to_jsonb(d) - 'hardware_uid' ORDER BY id), '[]'::jsonb)::text) FROM devices d WHERE device_id = 'checkoutbox-lab-01'")"
+            test "$PRE_DEVICE_FINGERPRINT" = "$POST_DEVICE_FINGERPRINT"
+            test "$PRE_BOX1_FINGERPRINT" = "$POST_BOX1_FINGERPRINT"
+            POST_DISCOVERY_COUNT="$(docker exec "$VALIDATION_DB" psql -U postgres -d hotelapp_snapshot -At \
+              -c "SELECT count(*) FROM device_discoveries")"
+            test "$PRE_DISCOVERY_COUNT" = "$POST_DISCOVERY_COUNT"
+
+            # The currently deployed (pre-change) backend must still start and
+            # report healthy against the migrated snapshot. This establishes
+            # the rollback path without touching the production database.
+            PREVIOUS_BACKEND_IMAGE="$(docker inspect "$BACKEND_CONTAINER" --format '{{.Image}}')"
+            docker run -d --name "$VALIDATION_OLD_APP" --network "$VALIDATION_NETWORK" \
+              --env-file .env \
+              -e DATABASE_URL="$SNAPSHOT_DATABASE_URL" \
+              -e BACKEND_HOST=0.0.0.0 -e BACKEND_PORT=3001 \
+              "$PREVIOUS_BACKEND_IMAGE" >/dev/null
+            for i in $(seq 1 30); do
+              if docker exec "$VALIDATION_OLD_APP" node -e \
+                "fetch('http://127.0.0.1:3001/api/health').then(async r=>{const j=await r.json();process.exit(r.ok&&j.databaseConnected?0:1)}).catch(()=>process.exit(1))"; then
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "::error::Previous backend is not compatible with the migrated snapshot"
+                docker logs --tail=100 "$VALIDATION_OLD_APP"
+                exit 1
+              fi
+              sleep 2
+            done
+            docker rm -f "$VALIDATION_OLD_APP" "$VALIDATION_DB" >/dev/null
+            docker network rm "$VALIDATION_NETWORK" >/dev/null
+            unset VALIDATION_PASSWORD SNAPSHOT_DATABASE_URL
+            echo "Real snapshot migration and backward-compatibility checks passed"
+
             docker compose -f docker-compose.hetzner.yml up -d --force-recreate --remove-orphans
             docker compose -f docker-compose.hetzner.yml ps
 
             for i in $(seq 1 30); do
               if curl --fail --silent --show-error http://127.0.0.1:3001/api/health >/dev/null && \
                  curl --fail --silent --show-error http://127.0.0.1:3000/ >/dev/null; then
+                PROVISIONING_HTTP_CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                  -H 'Content-Type: application/json' -H 'X-Forwarded-Proto: https' -d '{}' \
+                  http://127.0.0.1:3001/api/provisioning/v1/discover)"
+                test "$PROVISIONING_HTTP_CODE" = 400
+                FRONTEND_CONTAINER="$(docker compose -f docker-compose.hetzner.yml ps -q frontend)"
+                test -n "$FRONTEND_CONTAINER"
+                docker exec "$FRONTEND_CONTAINER" grep -R -q "Nuevo dispositivo detectado" /srv
                 echo "Services are healthy"
+                echo "Provisioning endpoint fails invalid discovery safely and the admin panel is present"
                 echo "Deployed commit: $ACTUAL_SHA"
                 exit 0
               fi
@@ -184,6 +322,23 @@ jobs:
             echo "Services failed to become healthy"
             docker compose -f docker-compose.hetzner.yml ps
             docker compose -f docker-compose.hetzner.yml logs --tail=100 backend frontend
+            echo "Rolling application code back to $PREVIOUS_SHA"
+            git reset --hard "$PREVIOUS_SHA"
+            if [ -s "$COMPOSE_PATCH" ]; then
+              git apply "$COMPOSE_PATCH"
+            fi
+            export GIT_SHA="$PREVIOUS_SHA"
+            docker compose -f docker-compose.hetzner.yml build backend frontend
+            docker compose -f docker-compose.hetzner.yml up -d --force-recreate --remove-orphans
+            for i in $(seq 1 30); do
+              if curl --fail --silent --show-error http://127.0.0.1:3001/api/health >/dev/null && \
+                 curl --fail --silent --show-error http://127.0.0.1:3000/ >/dev/null; then
+                echo "Rollback restored healthy services at $PREVIOUS_SHA"
+                exit 1
+              fi
+              sleep 2
+            done
+            echo "::error::Automatic application rollback also failed; backups remain in $BACKUP_DIR"
             exit 1
           EOF
 

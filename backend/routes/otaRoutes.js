@@ -65,20 +65,31 @@ export async function handleOtaRoute({
   pathname,
   parsedUrl,
   service,
+  provisioning,
   storage,
   getContext,
   limiter,
+  provisioningLimiter = limiter,
   responseHeaders = {},
 }) {
   const isDevice = pathname.startsWith("/api/device/v1/");
-  const isAdmin = /^\/api\/admin\/(devices|firmware-releases)(\/|$)/.test(
+  const isProvisioning = pathname.startsWith("/api/provisioning/v1/");
+  const isAdmin = /^\/api\/admin\/(devices|device-discoveries|firmware-releases)(\/|$)/.test(
     pathname,
   );
-  if (!isDevice && !isAdmin) return false;
+  if (!isDevice && !isProvisioning && !isAdmin) return false;
   requireOtaTransport(request);
   let payload,
     status = 200;
-  if (isDevice) {
+  if (isProvisioning) {
+    if (!provisioningLimiter.allow(request.socket?.remoteAddress || "unknown"))
+      throw otaError("Too many provisioning requests.", 429);
+    if (request.method === "POST" && pathname === "/api/provisioning/v1/discover")
+      payload = await provisioning.discover(await readOtaJson(request));
+    else if (request.method === "POST" && pathname === "/api/provisioning/v1/status")
+      payload = await provisioning.status(await readOtaJson(request));
+    else throw otaError("Provisioning endpoint not found.", 404);
+  } else if (isDevice) {
     if (!limiter.allow(request.socket?.remoteAddress || "unknown"))
       throw otaError("Too many device requests.", 429);
     const device = await service.authenticate(request);
@@ -119,7 +130,9 @@ export async function handleOtaRoute({
     requirePlatformAdmin(context.session);
     requireAdminOrigin(request);
     const userId = context.session.user.id;
-    if (pathname === "/api/admin/devices" && request.method === "GET")
+    if (pathname === "/api/admin/device-discoveries" && request.method === "GET")
+      payload = await provisioning.list();
+    else if (pathname === "/api/admin/devices" && request.method === "GET")
       payload = await service.listDevices();
     else if (pathname === "/api/admin/devices" && request.method === "POST") {
       payload = await service.createDevice(await readOtaJson(request));
@@ -151,6 +164,9 @@ export async function handleOtaRoute({
       const device = pathname.match(
         /^\/api\/admin\/devices\/([^/]+)(?:\/(updates|commands|configuration|revoke-credential))?$/,
       );
+      const discoveryApproval = pathname.match(
+        /^\/api\/admin\/device-discoveries\/([^/]+)\/approve$/,
+      );
       const cancelUpdate = pathname.match(
         /^\/api\/admin\/devices\/([^/]+)\/updates\/([^/]+)\/cancel$/,
       );
@@ -169,7 +185,11 @@ export async function handleOtaRoute({
       const release = pathname.match(
         /^\/api\/admin\/firmware-releases\/([^/]+)(?:\/(download|publish))?$/,
       );
-      if (rfidReadings && request.method === "GET")
+      if (discoveryApproval && request.method === "POST") {
+        payload = await provisioning.approve(
+          discoveryApproval[1], await readOtaJson(request), userId,
+        );
+      } else if (rfidReadings && request.method === "GET")
         payload=await service.listRfidReadings(
           rfidReadings[1],Object.fromEntries(parsedUrl.searchParams),
         );

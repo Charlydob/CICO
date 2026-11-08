@@ -1477,6 +1477,14 @@ export function getDevice(id: string) {
 export function registerDevice(input: { deviceId: string; name: string; hardwareModel: string; tenantId: string | null }) {
   return requestJson<import("../types/firmware").PhysicalDevice>("/api/admin/devices", { method: "POST", body: JSON.stringify(input) });
 }
+export function getDeviceDiscoveries() {
+  return requestJson<import("../types/firmware").DeviceDiscovery[]>("/api/admin/device-discoveries");
+}
+export function approveDeviceDiscovery(id:string,input:{pairingCode:string;name:string;tenantId:string|null}) {
+  return requestJson<import("../types/firmware").PhysicalDevice>(`/api/admin/device-discoveries/${encodeURIComponent(id)}/approve`,{
+    method:"POST",body:JSON.stringify(input),
+  });
+}
 export function assignDeviceTenant(id:string,tenantId:string|null) {
   return requestJson<import("../types/firmware").PhysicalDevice>(`/api/admin/devices/${encodeURIComponent(id)}/tenant`,{method:"PATCH",body:JSON.stringify({tenantId})});
 }

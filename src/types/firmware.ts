@@ -72,6 +72,7 @@ export interface PhysicalDevice {
   name: string;
   tenantId: string | null;
   hardwareModel: string;
+  hardwareUid?: string | null;
   status: string;
   currentFirmwareVersion: string | null;
   currentBuildId: string | null;
@@ -118,4 +119,19 @@ export interface PhysicalDevice {
   }>;
   historyTotals?: { rfidReadings:number; commands:number; otaUpdates:number };
   tenant?: { id: string; name: string } | null;
+}
+
+export interface DeviceDiscovery {
+  id: string;
+  deviceId: string;
+  hardwareModel: string;
+  hardwareUid: string;
+  firmwareVersion: string;
+  buildId: string;
+  status: "PENDING" | "APPROVED";
+  approvedDeviceId: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  approvedAt: string | null;
+  credentialDeliveredAt: string | null;
 }

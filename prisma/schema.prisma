@@ -446,6 +446,7 @@ model Device {
   tenantId                 String?         @map("tenant_id") @db.Uuid
   name                     String
   hardwareModel            String          @map("hardware_model")
+  hardwareUid              String?         @unique @map("hardware_uid")
   status                   String          @default("OFFLINE")
   currentFirmwareVersion   String?         @map("current_firmware_version")
   currentBuildId           String?         @map("current_build_id")
@@ -489,6 +490,27 @@ model Device {
   @@index([lastSeenAt])
   @@index([hardwareModel])
   @@map("devices")
+}
+
+model DeviceDiscovery {
+  id                    String   @id @default(uuid()) @db.Uuid
+  deviceId              String   @unique @map("device_id")
+  hardwareModel         String   @map("hardware_model")
+  hardwareUid           String   @unique @map("hardware_uid")
+  firmwareVersion       String   @map("firmware_version")
+  buildId               String   @map("build_id")
+  pairingCodeHash       String   @map("pairing_code_hash")
+  bootstrapTokenHash    String   @map("bootstrap_token_hash")
+  status                String   @default("PENDING")
+  approvedDeviceId      String?  @unique @map("approved_device_id") @db.Uuid
+  firstSeenAt           DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt            DateTime @default(now()) @map("last_seen_at")
+  approvedAt            DateTime? @map("approved_at")
+  credentialDeliveredAt DateTime? @map("credential_delivered_at")
+  approvedBy            String?  @map("approved_by")
+
+  @@index([status, lastSeenAt])
+  @@map("device_discoveries")
 }
 
 model DeviceRfidKey {
