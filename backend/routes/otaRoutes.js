@@ -69,6 +69,7 @@ export async function handleOtaRoute({
   storage,
   getContext,
   limiter,
+  provisioningLimiter = limiter,
   responseHeaders = {},
 }) {
   const isDevice = pathname.startsWith("/api/device/v1/");
@@ -81,7 +82,7 @@ export async function handleOtaRoute({
   let payload,
     status = 200;
   if (isProvisioning) {
-    if (!limiter.allow(request.socket?.remoteAddress || "unknown"))
+    if (!provisioningLimiter.allow(request.socket?.remoteAddress || "unknown"))
       throw otaError("Too many provisioning requests.", 429);
     if (request.method === "POST" && pathname === "/api/provisioning/v1/discover")
       payload = await provisioning.discover(await readOtaJson(request));

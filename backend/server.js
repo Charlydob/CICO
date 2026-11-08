@@ -306,6 +306,7 @@ const otaService = createOtaService(database.prisma, firmwareStorage, { database
 const provisioningService = createDeviceProvisioningService(database.prisma);
 const hookboxService = createHookboxService(database.prisma, createCheckinProvider());
 const deviceLimiter = createRateLimiter({ windowMs: 60_000, max: 240 });
+const provisioningLimiter = createRateLimiter({ windowMs: 60_000, max: 60 });
 await ensureBootstrapTenant(database);
 const publicCheckoutLimiter = createRateLimiter({
   windowMs: Number(process.env.PUBLIC_CHECKOUT_RATE_WINDOW_MS || 60_000),
@@ -507,7 +508,7 @@ const server = createServer(async (request, response) => {
     if (await handleHookboxRoute({request,response,pathname,service:hookboxService,otaService,getContext:getProtectedContext,limiter:deviceLimiter,responseHeaders:corsHeaders(request)})) return;
     if (await handleOtaRoute({ request, response, pathname, parsedUrl, service: otaService,
       provisioning: provisioningService, storage: firmwareStorage, getContext: getProtectedContext,
-      limiter: deviceLimiter, responseHeaders: corsHeaders(request) })) return;
+      limiter: deviceLimiter, provisioningLimiter, responseHeaders: corsHeaders(request) })) return;
     if (request.method === "GET" && pathname === "/api/health") {
       let databaseConnected = false;
       try {

@@ -27,6 +27,9 @@ cryptographically secure secrets manager and back it up before deployment.
 The discovery protocol accepts product-prefixed MAC identities for Checkout Box
 and Hookbox. Hardware-specific behavior remains selected by `hardware_model`, so
 future Hookbox firmware can reuse this flow without sharing device credentials.
+Provisioning requests use a dedicated rate limiter, so traffic to the public
+discovery endpoint cannot consume the request allowance used by already active
+devices such as Checkout Box 1.
 
 ## Safe deployment order
 
@@ -36,3 +39,19 @@ future Hookbox firmware can reuse this flow without sharing device credentials.
 4. Deploy backend and frontend; verify existing devices still heartbeat.
 5. Flash a new Checkout Box only after the pending-device endpoints return 200.
 6. Pair it using the physical code. Never reuse or rotate Checkout Box 1.
+
+The production workflow installs the master key from a masked GitHub Actions
+secret into the server's protected `.env` file without printing it. It then
+restores the new PostgreSQL backup into an isolated container, applies the
+migration there first, compares all legacy device fields (including the
+Checkout Box 1 record when present), and starts the previously deployed backend
+against the migrated snapshot to prove backward compatibility. Production is
+updated only after those checks pass.
+
+If the new backend or frontend fails its health checks, the workflow checks out
+the recorded pre-deploy commit, reapplies the private Compose override and
+rebuilds the previous application. The database migration is intentionally
+additive, so the previous application ignores the nullable `hardware_uid`
+column and the new, initially empty `device_discoveries` table. The timestamped
+PostgreSQL dump and volume archives remain available for manual disaster
+recovery; they are not restored automatically over a live database.
